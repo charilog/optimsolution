@@ -4,7 +4,7 @@ Optimsolution is a C++ optimization framework for repeatable, high-throughput ex
 
 ## Parameter sensitivity analysis
 
-optimsolution can be used for **parameter sensitivity analysis** per optimizer by systematically varying method parameters (e.g., population size and control parameters) and comparing performance distributions across multiple independent runs under identical stopping rules.
+optimsolution can be used for **parameter sensitivity analysis** per optimizer by systematically varying method parameters (e.g., population size and control parameters) and comparing performance distributions across multiple independent runs under identical stopping rules. (check the session sensitivity in optimsolution.cfg file)
 
 ---
 
@@ -23,7 +23,7 @@ Use the following **short names** in the command line:
 | `arqdp` | ARQ Directional Prediction + Far-Horizon Lookahead + Best-First Attack (ARQDP-v10) |
 | `arqeig` | ARQ with Eigen-like coordinate learning (ARQEig) |
 | `arqeigrl` | Dual-zone DE with local RL (ARQEigRL) |
-| `bfgs` |  |
+| `bfgs` |  | Broyden-Fletcher-Goldfarb-Shanno |
 | `bho` | BioHealing Optimization (BHO) |
 | `clpso` | Comprehensive Learning Particle Swarm Optimization (CLPSO) |
 | `cmaes` | Covariance Matrix Adaptation Evolution Strategy (CMA-ES) |
@@ -34,7 +34,7 @@ Use the following **short names** in the command line:
 | `ga` | Genetic Algorithm (GA) |
 | `gao` | Giant Armadillo Optimizer (GAO) |
 | `garq` | Golden ARQ with Reinforcement Learning (GARQ) |
-| `gd` |  |
+| `gd` |  | Gradient Descent (local method) |
 | `gde` | Golden Differential Evolution (pbest/1+archive) |
 | `gderl` | Golden Differential Evolution with Reinforcement Learning (gDE-rl) |
 | `gwo` | Grey Wolf Optimizer (GWO) |
@@ -42,10 +42,10 @@ Use the following **short names** in the command line:
 | `hjso` | HJSO: EA4eig hybrid shell with ARQ as default core |
 | `jde` | Self-adaptive Differential Evolution (jDE) |
 | `jso` | Hybrid Differential Evolution JSO |
-| `lbfgs` |  |
+| `lbfgs` | Limited-memory Broyden-Fletcher-Goldfarb-Shanno |
 | `mewoa` | Modified Enhanced Whale Optimization Algorithm (MEWOA) |
 | `mlshaderl` | Multi-operator L-SHADE with Reinforcement Learning (mLSHADE-RL) |
-| `nm` |  |
+| `nm` |  Nelder–Mead Simplex |
 | `pde` | Parallel Differential Evolution (PDE) |
 | `pga` | Parallel Genetic Algorithm (PGA) |
 | `polyde` | Polyphase Expert Multi-Strategy DE (PolyphaseDE) |
