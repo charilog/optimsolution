@@ -4,7 +4,7 @@ Optimsolution is a C++ optimization framework for repeatable, high-throughput ex
 
 ## Parameter sensitivity analysis
 
-optimsolution can be used for **parameter sensitivity analysis** per optimizer by systematically varying method parameters (e.g., population size and control parameters) and comparing performance distributions across multiple independent runs under identical stopping rules. (check the session sensitivity in optimsolution.cfg file)
+Optimsolution can be used for **parameter sensitivity analysis** per optimizer by systematically varying method parameters (e.g., population size and control parameters) and comparing performance distributions across multiple independent runs under identical stopping rules. (check the session sensitivity in optimsolution.cfg file)
 
 ---
 
