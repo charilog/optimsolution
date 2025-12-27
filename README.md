@@ -42,7 +42,144 @@ sudo apt install -y ninja-build
 
 ---
 
-## 3) Settings used (optimsolution.cfg)
+## 3) Available methods and problems (CLI)
+
+Use the following **short names** in the command line:
+
+### Methods
+| Short name | Full name |
+|---|---|
+| `aarq` | Aggressive Archive-based Quarantine Differential Evolution (AARQ) |
+| `abc` | Artificial Bee Colony (ABC) |
+| `aco` | Ant Colony Optimization (ACO) |
+| `acor` | Ant Colony Optimization for Continuous Domains (ACOR) |
+| `arq` | ARQ: Adaptive RTR with Quarantine |
+| `arqdp` | ARQ Directional Prediction + Far-Horizon Lookahead + Best-First Attack (ARQDP-v10) |
+| `arqeig` | ARQ with Eigen-like coordinate learning (ARQEig) |
+| `arqeigrl` | Dual-zone DE with local RL (ARQEigRL) |
+| `bfgs` |  |
+| `bho` | BioHealing Optimization (BHO) |
+| `clpso` | Comprehensive Learning Particle Swarm Optimization (CLPSO) |
+| `cmaes` | Covariance Matrix Adaptation Evolution Strategy (CMA-ES) |
+| `de` | Differential Evolution (DE/rand/1/bin) |
+| `ea4eig` | Evolutionary Algorithms with Eigen crossover (EA4eig) |
+| `egco` | Eel and Grouper Optimizer(EGCO) |
+| `fuse` | Fusion Search Ensemble (FUSE) |
+| `ga` | Genetic Algorithm (GA) |
+| `gao` | Giant Armadillo Optimizer (GAO) |
+| `garq` | Golden ARQ with Reinforcement Learning (GARQ) |
+| `gd` |  |
+| `gde` | Golden Differential Evolution (pbest/1+archive) |
+| `gderl` | Golden Differential Evolution with Reinforcement Learning (gDE-rl) |
+| `gwo` | Grey Wolf Optimizer (GWO) |
+| `hde` | Hybrid Differential Evolution (HDE) |
+| `hjso` | HJSO: EA4eig hybrid shell with ARQ as default core |
+| `jde` | Self-adaptive Differential Evolution (jDE) |
+| `jso` | Hybrid Differential Evolution JSO |
+| `lbfgs` |  |
+| `mewoa` | Modified Enhanced Whale Optimization Algorithm (MEWOA) |
+| `mlshaderl` | Multi-operator L-SHADE with Reinforcement Learning (mLSHADE-RL) |
+| `nm` |  |
+| `pde` | Parallel Differential Evolution (PDE) |
+| `pga` | Parallel Genetic Algorithm (PGA) |
+| `polyde` | Polyphase Expert Multi-Strategy DE (PolyphaseDE) |
+| `ppso` | Parallel Particle Swarm Optimization (PPSO) |
+| `psao` | Parallel Smell Agent Optimization (PSAO) |
+| `psioa` | Parallel Sporulation-Inspired Optimization Algorithm (PSIOA) |
+| `pso` | Particle Swarm Optimization (PSO) |
+| `rarq` | Roulette Adaptive Robust Quarantine (RARQ) |
+| `sa` | Simulated Annealing (SA) |
+| `sade` | Self-adaptive Differential Evolution (SaDE) |
+| `sao` | Smell Agent Optimization (SAO) |
+| `sioa` | Sporulation-Inspired Optimization Algorithm (SIOA) |
+| `tridentde` | TRIDENT Differential Evolution (TRIDENT-DE) |
+| `ude3` | Enhanced Unified Differential Evolution Algorithm 3 (UDE3) |
+| `woa` | Whale Optimization Algorithm (WOA) |
+
+### Problems
+| Short name | Full name |
+|---|---|
+| `ackley` | Ackley benchmark function |
+| `antennaarray` | 6-element circular antenna array (sidelobe level minimization) |
+| `antennaula` | Uniform Linear Array (half-wavelength spacing, amplitude taper) |
+| `attractivesector` | Attractive Sector benchmark function |
+| `bifunctionalcatalyst` | Bifunctional catalyst dynamic optimization problem |
+| `bohachevsky1` | Bohachevsky function 1 |
+| `bohachevsky2` | Bohachevsky function 2 |
+| `bohachevsky3` | Bohachevsky function 3 |
+| `branin` | Branin (Branin-Hoo) function |
+| `bucherastrigin` | Buche-Rastrigin function (BBOB-style variant) |
+| `camel` | Six-Hump Camel function |
+| `cassini` | Cassini interplanetary transfer timing problem |
+| `cigar` | Cigar function |
+| `cosinemixture` | Cosine Mixture function |
+| `ded1` | Dynamic Economic Dispatch - Case 1 (quadratic cost) |
+| `ded2` | Dynamic Economic Dispatch - Case 2 (9-unit system) |
+| `differentpowers` | Different Powers function |
+| `diracproblem` | Dirac-like Gaussian spike function |
+| `easom` | Easom function |
+| `eld1` | Economic Load Dispatch - 1 (single period) |
+| `eld2` | Economic Load Dispatch - 2 (13-unit single-period) |
+| `eld3` | Economic Load Dispatch - 3 (CEC2011 15-unit instance) |
+| `eld4` | Economic Load Dispatch - 4 (40-unit CEC benchmark) |
+| `eld5` | Economic Load Dispatch - 5 (CEC2011 140-unit case) |
+| `ellipsoidal` | Ellipsoidal function |
+| `equalmaxima` | Equal Maxima function |
+| `expotential` | Expotential function  f(x)=1-exp(-0.5||x||^2) |
+| `fmsynth` | FM Synth Parameter Estimation |
+| `gallagher101` | Gallagher's Gaussian 101-peaks function |
+| `gallagher21` | Gallagher's Gaussian 21-me Peaks |
+| `gascycle` | Idealized gas cycle efficiency (Brayton-type) |
+| `gkls2100` | GKLS 2D, 100 minima (D-type) |
+| `gkls250` | GKLS 2D, 50 minima (D-type) |
+| `gkls350` | GKLS 3D, 50 minima (D-type) |
+| `goldstein` | Goldstein–Price function |
+| `griewank` | Griewank function |
+| `griewankrosenbrock` | Griewank–Rosenbrock Composition Function |
+| `hansen` | Hansen function |
+| `hartmann3` | Hartmann 3D function |
+| `hartmann6` | Hartmann 6D function |
+| `heatexchanger` | Heat Exchanger Design Optimization Problem |
+| `himmelblau` | Himmelblau (maximize-style variant) |
+| `hydrothermal` | Hydrothermal scheduling (smooth penalty model) |
+| `ik6dof` | 6-DOF Inverse Kinematics (DH serial chain) |
+| `katsuura` | Katsuura function |
+| `levy` | Levy N.13 function |
+| `lunacekbirastrigin` | Lunacek bi-Rastrigin function |
+| `messenger` | MESSENGER MGA-1DSM surrogate ΔV |
+| `michalewicz` | Michalewicz function |
+| `ofdmpower` | OFDM Power Allocation (sum–rate with soft power constraint) |
+| `polyphase` | Polyphase sequence PSL minimization (aperiodic autocorrelation) |
+| `portfoliomv` | Markowitz Mean–Variance Portfolio (long-only, soft sum-to-one) |
+| `potential` | Lennard-Jones Pairwise Potential |
+| `rastrigin` | Rastrigin benchmark function |
+| `rastrigin2` | 2D Rastrigin function (shifted, f* = -2) |
+| `rosenbrock` | Rosenbrock benchmark function |
+| `rotatedrosenbrock` | Rotated Rosenbrock function |
+| `schaffer` | Schaffer N.2 (F6) function |
+| `schwefel` | Schwefel 2.26 function |
+| `shekel10` | Shekel function (m = 10, D = 4) |
+| `shekel5` | Shekel function (m = 5, D = 4) |
+| `shekel7` | Shekel function (m = 7, D = 4) |
+| `shubert` | Shubert function (2D, highly multimodal) |
+| `sinusoidal` | Multidimensional sinusoidal test function |
+| `sphere` | Sphere benchmark function |
+| `stepellipsoidal` | Step-Ellipsoidal function |
+| `tandem` | Tandem MGA-1DSM surrogate ΔV |
+| `tersoffb` | TersoffB Si(B) Cluster Potential (CEC2011) |
+| `tersoffc` | TersoffC Si(C) Cluster Potential (CEC2011) |
+| `test2n` | Separable quartic polynomial (Test2n) |
+| `test30n` | Oscillatory non-separable benchmark (Test30n) |
+| `tnep` | Transmission Network Expansion Planning (DC-OPF surrogate) |
+| `transmissionpricing` | Transmission pricing via PTDF-based DC power flow |
+| `vibratingplatform` | Base-excited SDOF isolation platform design |
+| `weierstrass` | Weierstrass function |
+| `wirelesscoverage` | Wireless coverage planning (antenna placement & power) |
+| `zakharov` | Zakharov function |
+
+---
+
+## 4) Settings used (optimsolution.cfg)
 
 The executable reads experiment defaults from `optimsolution.cfg`.  
 The **[global]** section defines defaults, while a **method section** (e.g., **[arq]**) can **override** keys such as `population`, `local_rate`, etc.
@@ -101,7 +238,7 @@ local_method = lbfgs
 
 ---
 
-## 4) Example run output (end of execution)
+## 5) Example run output (end of execution)
 
 The following screenshot shows the **last iterations of Run 30** and the **final run summary** for:
 - **Method:** `arq`
