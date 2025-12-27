@@ -45,7 +45,7 @@ Use the following **short names** in the command line:
 | `lbfgs` | Limited-memory Broyden-Fletcher-Goldfarb-Shanno (local method) |
 | `mewoa` | Modified Enhanced Whale Optimization Algorithm (MEWOA) |
 | `mlshaderl` | Multi-operator L-SHADE with Reinforcement Learning (mLSHADE-RL) |
-| `nm` | Nelder–Mead Simplex (local method) |
+| `nm` | Nelder-Mead Simplex (local method) |
 | `pde` | Parallel Differential Evolution (PDE) |
 | `pga` | Parallel Genetic Algorithm (PGA) |
 | `polyde` | Polyphase Expert Multi-Strategy DE (PolyphaseDE) |
