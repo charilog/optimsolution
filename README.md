@@ -22,7 +22,7 @@
 
 ---
 
-## 2) Linux (MX) (Debug)
+## 2) Linux (Debug)
 
 ### Install
 ```bash
