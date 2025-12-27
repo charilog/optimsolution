@@ -23,7 +23,7 @@ Use the following **short names** in the command line:
 | `arqdp` | ARQ Directional Prediction + Far-Horizon Lookahead + Best-First Attack (ARQDP-v10) |
 | `arqeig` | ARQ with Eigen-like coordinate learning (ARQEig) |
 | `arqeigrl` | Dual-zone DE with local RL (ARQEigRL) |
-| `bfgs` | Broyden-Fletcher-Goldfarb-Shanno |
+| `bfgs` | Broyden-Fletcher-Goldfarb-Shanno (local method) |
 | `bho` | BioHealing Optimization (BHO) |
 | `clpso` | Comprehensive Learning Particle Swarm Optimization (CLPSO) |
 | `cmaes` | Covariance Matrix Adaptation Evolution Strategy (CMA-ES) |
@@ -42,10 +42,10 @@ Use the following **short names** in the command line:
 | `hjso` | HJSO: EA4eig hybrid shell with ARQ as default core |
 | `jde` | Self-adaptive Differential Evolution (jDE) |
 | `jso` | Hybrid Differential Evolution JSO |
-| `lbfgs` | Limited-memory Broyden-Fletcher-Goldfarb-Shanno |
+| `lbfgs` | Limited-memory Broyden-Fletcher-Goldfarb-Shanno (local method) |
 | `mewoa` | Modified Enhanced Whale Optimization Algorithm (MEWOA) |
 | `mlshaderl` | Multi-operator L-SHADE with Reinforcement Learning (mLSHADE-RL) |
-| `nm` | Nelder–Mead Simplex |
+| `nm` | Nelder–Mead Simplex (local method) |
 | `pde` | Parallel Differential Evolution (PDE) |
 | `pga` | Parallel Genetic Algorithm (PGA) |
 | `polyde` | Polyphase Expert Multi-Strategy DE (PolyphaseDE) |
