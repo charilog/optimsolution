@@ -29,7 +29,7 @@ Use the following **short names** in the command line:
 | `cmaes` | Covariance Matrix Adaptation Evolution Strategy (CMA-ES) |
 | `de` | Differential Evolution (DE/rand/1/bin) |
 | `ea4eig` | Evolutionary Algorithms with Eigen crossover (EA4eig) |
-| `egco` | Eel and Grouper Optimizer(EGCO) |
+| `egco` | Eel and Grouper Optimizer (EGCO) |
 | `fuse` | Fusion Search Ensemble (FUSE) |
 | `ga` | Genetic Algorithm (GA) |
 | `gao` | Giant Armadillo Optimizer (GAO) |
