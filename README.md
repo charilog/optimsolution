@@ -1,48 +1,14 @@
-# Build & Run (Debug) + Configuration
+# optimSolution
+
+Optimsolution is a C++ optimization framework for repeatable, high-throughput experimentation with population-based metaheuristics and numerical optimizers on benchmark and application-driven objective functions. It provides a uniform command-line interface to run a selected method on a selected problem under explicit computational budgets (e.g., maximum function evaluations and/or iterations), using consistent initialization and stopping rules. During execution, it logs progress and produces standardized end-of-run summaries (best/mean/dispersion, success metrics, and timing), enabling systematic empirical studies across methods, problems, and parameterizations.
+
+## Parameter sensitivity analysis
+
+optimsolution can be used for **parameter sensitivity analysis** per optimizer by systematically varying method parameters (e.g., population size and control parameters) and comparing performance distributions across multiple independent runs under identical stopping rules.
 
 ---
 
-## 1) Windows (Debug)
-
-### Prerequisites
-- Visual Studio 2022 (Community or Build Tools)
-  - Workload: Desktop development with C++
-  - Components: MSVC v143, Windows 10/11 SDK, CMake Tools (optional but recommended)
-- CMake (if not installed via Visual Studio): ensure it is available in your system PATH
-- (Optional) Ninja for faster builds
-
-### Configure / Build / Run (Debug)
-```bat
-1] cd /path/to/optimsolution
-2] cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-3] cmake --build build --config Debug
-4] cd build
-5] .\Debug\optimsolution jso rastrigin 30
-```
-
----
-
-## 2) Linux (Debug)
-
-### Install
-```bash
-sudo apt update
-sudo apt install -y build-essential cmake gdb
-sudo apt install -y ninja-build
-```
-
-### Configure / Build / Run (Debug)
-```bash
-1] cd /path/to/optimsolution
-2] cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-3] cmake --build build -j
-4] cd build
-5] ./optimsolution jso rastrigin 30
-```
-
----
-
-## 3) Available methods and problems (CLI)
+## 1) Available methods and problems (CLI)
 
 Use the following **short names** in the command line:
 
@@ -176,6 +142,50 @@ Use the following **short names** in the command line:
 | `weierstrass` | Weierstrass function |
 | `wirelesscoverage` | Wireless coverage planning (antenna placement & power) |
 | `zakharov` | Zakharov function |
+
+---
+
+---
+
+---
+
+## 2) Windows (Debug)
+
+### Prerequisites
+- Visual Studio 2022 (Community or Build Tools)
+  - Workload: Desktop development with C++
+  - Components: MSVC v143, Windows 10/11 SDK, CMake Tools (optional but recommended)
+- CMake (if not installed via Visual Studio): ensure it is available in your system PATH
+- (Optional) Ninja for faster builds
+
+### Configure / Build / Run (Debug)
+```bat
+1] cd /path/to/optimsolution
+2] cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+3] cmake --build build --config Debug
+4] cd build
+5] .\Debug\optimsolution jso rastrigin 30
+```
+
+---
+
+## 2) Linux (Debug)
+
+### Install
+```bash
+sudo apt update
+sudo apt install -y build-essential cmake gdb
+sudo apt install -y ninja-build
+```
+
+### Configure / Build / Run (Debug)
+```bash
+1] cd /path/to/optimsolution
+2] cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+3] cmake --build build -j
+4] cd build
+5] ./optimsolution jso rastrigin 30
+```
 
 ---
 
