@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./docs/optisolution.png" alt="Optimsolution logo" width="720">
+  <img src="./docs/optimsolution.png" alt="Optimsolution logo" width="720">
 </p>
 
 # optimSolution
