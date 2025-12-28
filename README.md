@@ -146,10 +146,6 @@ Use the following **short names** in the command line:
 
 ---
 
----
-
----
-
 ## 2) Windows (Debug)
 
 ### Prerequisites
