@@ -253,7 +253,7 @@ The following screenshot shows the **last iterations of Run 30** and the **final
 - **Runs:** 30
 - **Budget:** 150000 evals/run
 
-![Console output: ARQ on tersoffc (Dim=24)](arq_tersoffc.png)
+![Console output: ARQ on tersoffc (Dim=24)](./docs/arq_tersoffc.png)
 
 ### What the last iteration lines mean
 Lines like:
