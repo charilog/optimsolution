@@ -146,7 +146,7 @@ Use the following **short names** in the command line:
 
 ---
 
-## 2) Windows (Debug)
+## 2) Windows
 
 ### Prerequisites
 - Visual Studio 2022 (Community or Build Tools)
@@ -155,7 +155,7 @@ Use the following **short names** in the command line:
 - CMake (if not installed via Visual Studio): ensure it is available in your system PATH
 - (Optional) Ninja for faster builds
 
-### Configure / Build / Run (Debug)
+### Configure / Build / Run (Debug or Release)
 ```bat
 1] cd /path/to/optimsolution
 2] cmake -S . -B build -G "Visual Studio 17 2022" -A x64
@@ -166,7 +166,7 @@ Use the following **short names** in the command line:
 
 ---
 
-## 2) Linux (Debug)
+## 2) Linux
 
 ### Install
 ```bash
@@ -175,7 +175,7 @@ sudo apt install -y build-essential cmake gdb
 sudo apt install -y ninja-build
 ```
 
-### Configure / Build / Run (Debug)
+### Configure / Build / Run (Debug or Release)
 ```bash
 1] cd /path/to/optimsolution
 2] cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
