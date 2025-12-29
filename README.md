@@ -159,9 +159,10 @@ Use the following **short names** in the command line:
 ```bat
 1] cd /path/to/optimsolution
 2] cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-3] cmake --build build --config Debug
-4] cd build
-5] .\Debug\optimsolution jso rastrigin 30
+3] mkdir build (or release)
+4] cmake --build build --config Debug
+5] cd build (or release)
+6] .\Debug\optimsolution jso rastrigin 30
 ```
 
 ---
@@ -179,9 +180,10 @@ sudo apt install -y ninja-build
 ```bash
 1] cd /path/to/optimsolution
 2] cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-3] cmake --build build -j
-4] cd build
-5] ./optimsolution jso rastrigin 30
+3] mkdir build (or release)
+4] cmake --build build -j
+5] cd build (or release)
+6] ./optimsolution jso rastrigin 30
 ```
 
 ---
