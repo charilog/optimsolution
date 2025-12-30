@@ -10,6 +10,7 @@
 #include <fstream>
 #include <functional>
 #include <ctime>
+#include <filesystem>
 
 #include "utils.h"
 #include "problem.h"
@@ -19,6 +20,44 @@
 #include "sensitivity.h"
 #include "options.h"
 #include "fixed_dims.h"
+
+// Resolve optimsolution.cfg from any subdirectory (e.g., build/, Debug/, etc.).
+// The search starts from the current working directory and the executable directory,
+// then walks up parent directories until the configuration file is found.
+static std::filesystem::path findOptimsolutionCfg(const char* argv0)
+{
+    namespace fs = std::filesystem;
+
+    std::vector<fs::path> start_dirs;
+    try { start_dirs.push_back(fs::current_path()); } catch (...) {}
+
+    if (argv0 && *argv0) {
+        try {
+            fs::path exe = fs::absolute(fs::path(argv0));
+            if (!exe.empty()) {
+                start_dirs.push_back(exe.parent_path());
+            }
+        } catch (...) {}
+    }
+
+    for (const auto& start : start_dirs) {
+        fs::path dir = start;
+        for (int depth = 0; depth < 32; ++depth) {
+            fs::path cand = dir / "optimsolution.cfg";
+            std::error_code ec;
+            if (fs::exists(cand, ec) && fs::is_regular_file(cand, ec)) {
+                return cand;
+            }
+            if (!dir.has_parent_path()) break;
+            fs::path parent = dir.parent_path();
+            if (parent == dir) break;
+            dir = parent;
+        }
+    }
+
+    // Fallback: preserve historical behavior (relative lookup).
+    return fs::path("../optimsolution.cfg");
+}
 
 using namespace optimsolution;
 
@@ -68,7 +107,7 @@ static const char* C_RESET   = "\033[0m";
 static const char* C_BOLD    = "\033[1m";
 static const char* C_LABEL   = "\033[36m";  // bright cyan for all labels
 
-// για success rate:
+// For success rate:
 static const char* C_GOOD    = "\033[32m";  // green (>= 90%)
 static const char* C_MED     = "\033[34m";  // blue  (50%–90%)
 static const char* C_BAD     = "\033[31m";  // red   (< 50%)
@@ -82,7 +121,7 @@ static const char* C_WARN    = "\033[33m";  // yellow
 
 static const char* C_PROBVAL = "\033[96m";
 
-// ---------- Tee για capture convergence lines ----------
+// ---------- Tee for capturing convergence lines ----------
 class TeeBuf : public std::streambuf {
 public:
     TeeBuf(std::streambuf* a, std::ostream* tap, std::function<void(const std::string&)> onLine)
@@ -235,7 +274,9 @@ int main(int argc, char** argv){
 
     std::string method  = toLower(argv[1]);
     std::string problem = toLower(argv[2]);
-    std::string method_full_name = method;  // default, αντικαθίσταται από τη μέθοδο
+    std::string method_full_name = method;  // Default; replaced by the method when available.
+    const std::string cfg_file = findOptimsolutionCfg(argv[0]).string();
+
 
     auto prob = makeProblem(problem);
     if (!prob) {
@@ -272,7 +313,7 @@ int main(int argc, char** argv){
 
     prob->init(dim);
 
-    auto cfg = Config::load("../optimsolution.cfg", method);
+    auto cfg = Config::load(cfg_file, method);
     if (cfg.sens.enabled) {
         return run_sensitivity(method, problem, dim, cfg);
     }
@@ -719,15 +760,15 @@ int main(int argc, char** argv){
     label_w += 1;
 
     // --------- GLOBAL summary toggles from [global] of optimsolution.cfg ---------
-    bool summary_enable    = readGlobalBoolOption("../optimsolution.cfg", "summary_enable",           true);
-    bool show_general      = readGlobalBoolOption("../optimsolution.cfg", "summary_show_general",     true);
-    bool show_problem      = readGlobalBoolOption("../optimsolution.cfg", "summary_show_problem",     true);
-    bool show_config       = readGlobalBoolOption("../optimsolution.cfg", "summary_show_config",      true);
-    bool show_performance  = readGlobalBoolOption("../optimsolution.cfg", "summary_show_performance", true);
-    bool show_calls        = readGlobalBoolOption("../optimsolution.cfg", "summary_show_calls",       true);
-    bool show_timing       = readGlobalBoolOption("../optimsolution.cfg", "summary_show_timing",      true);
-    bool show_local        = readGlobalBoolOption("../optimsolution.cfg", "summary_show_local",       true);
-    bool show_highlights   = readGlobalBoolOption("../optimsolution.cfg", "summary_show_highlights",  true);
+    bool summary_enable    = readGlobalBoolOption(cfg_file, "summary_enable",           true);
+    bool show_general      = readGlobalBoolOption(cfg_file, "summary_show_general",     true);
+    bool show_problem      = readGlobalBoolOption(cfg_file, "summary_show_problem",     true);
+    bool show_config       = readGlobalBoolOption(cfg_file, "summary_show_config",      true);
+    bool show_performance  = readGlobalBoolOption(cfg_file, "summary_show_performance", true);
+    bool show_calls        = readGlobalBoolOption(cfg_file, "summary_show_calls",       true);
+    bool show_timing       = readGlobalBoolOption(cfg_file, "summary_show_timing",      true);
+    bool show_local        = readGlobalBoolOption(cfg_file, "summary_show_local",       true);
+    bool show_highlights   = readGlobalBoolOption(cfg_file, "summary_show_highlights",  true);
 
     std::cout << std::setprecision(12) << std::fixed;
 
@@ -812,7 +853,7 @@ int main(int argc, char** argv){
         }
     }
 
-    // CSV summary (ίδια λογική όπως πριν)
+    // CSV summary (same logic as before)
     if (cfg.g.csv_enable && cfg.g.csv_summary) {
         summ_csv
             << method << ","
