@@ -159,10 +159,8 @@ Use the following **short names** in the command line:
 ```bat
 1] cd /path/to/optimsolution
 2] cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-3] mkdir build (or release)
-4] cmake --build build --config Debug
-5] cd build (or release)
-6] .\Debug\optimsolution jso rastrigin 30
+3] cmake --build build --config Debug
+4] .\build\Debug\optimsolution jso rastrigin 30
 ```
 
 ---
