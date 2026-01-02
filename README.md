@@ -348,17 +348,7 @@ cmake --build build --target optimsolution -j
 
 ## 4) Settings (optimsolution.cfg)
 
-### A) GUI
-
-The GUI uses the same `optimsolution.cfg` as the CLI, but it can apply **run-time overrides** by generating a temporary config snapshot for each run (without modifying your repository file).
-
-GUI overview diagram: 
-
-![optimsolution GUI](./docs/optimsolution_gui.png)
-
-For details, see the PDF manual: [optimsolution_manual.pdf](./docs/optimsolution_manual.pdf)
-
-### B) Console (CLI)
+### A) Console (CLI)
 
 The console solver reads experiment defaults from `optimsolution.cfg`.
 
@@ -430,46 +420,15 @@ The following screenshot shows the **last iterations of Run 30** and the **final
 
 ![Console output: ARQ on tersoffc (Dim=24)](./docs/arq_tersoffc.png)
 
-### What the last iteration lines mean
-Lines like:
-- `iter 2495 | evals 150000 | best_f = -32.013207...`
+### B) GUI
 
-indicate:
-- **iter**: iteration counter,
-- **evals**: total function evaluations used so far,
-- **best_f**: best objective value found so far in that run.
+The GUI uses the same `optimsolution.cfg` as the CLI, but it can apply **run-time overrides** by generating a temporary config snapshot for each run (without modifying your repository file).
 
-The flat `best_f` in the last lines indicates no improvement near the end, and the run stops because it reaches the configured evaluation budget (`maxevals` / `max_evals`).
+GUI overview: 
 
-### How to read the RUN SUMMARY (quick)
-- **Best f (min)**: best result over all runs.
-- **Best f (mean ± sd)**: average performance (and variability) over runs.
-- **Median, Q1–Q3**: robust distribution summary.
-- **Success rate**: how many runs satisfy the success criterion (here `1/30`).
-- **Timing & memory**: runtime statistics and memory footprint.
+![optimsolution GUI](./docs/optimsolution_gui.png)
 
----
+For details, see the PDF manual: [optimsolution_manual.pdf](./docs/optimsolution_manual.pdf)
 
-## Help: Why 30 independent runs?
 
-Many optimizers implemented in **optimsolution** are **stochastic** (e.g., evolutionary and swarm methods). In such algorithms, the observed outcome is not a single deterministic value; it is a **random variable** that depends on sources of randomness such as the initial population, mutation/crossover choices, and other sampling operations. For this reason, a single execution may be unrepresentative (either unusually good or unusually poor), and conclusions based on one run are generally not statistically defensible.
-
-### Reliability (repeatability) in stochastic optimization
-In measurement science, **reliability** refers to the consistency of a measurement procedure when repeated under identical conditions. In stochastic optimization, reliability is assessed by repeating the algorithm under the same experimental configuration (same problem, bounds, budget, and parameterization) while varying only the **random seed**. If the solver produces **similar performance distributions** across repetitions (e.g., stable mean/median and reasonable variance), then the experimental outcomes are considered repeatable and the method can be evaluated with confidence.
-
-### Validity (accuracy with respect to the objective)
-**Validity** refers to whether a measurement captures the “true” quantity of interest. In optimization benchmarking, validity is linked to whether the experimental protocol can credibly reflect the algorithm’s ability to approach the best achievable objective values under the given budget. A reliable protocol is a prerequisite for validity: without repeatability, it is impossible to distinguish genuine algorithmic performance from random fluctuations.
-
-### Why “30 runs” is a practical standard
-Using **multiple independent runs** is required to:
-- estimate central tendency (mean/median) and dispersion (standard deviation / interquartile range),
-- quantify success probability (success rate) under a fixed budget,
-- support inferential comparisons between methods using non-parametric tests (e.g., Wilcoxon, Friedman) that assume independent samples.
-
-Choosing **30 independent runs** is widely used as a practical compromise between statistical stability and computational cost. With ~30 samples, summary statistics and empirical success rates typically become markedly more stable than with very small sample sizes, and the sample size is also sufficient for many standard non-parametric comparisons to have reasonable power under typical benchmarking budgets.
-
-### Recommended practice in optimsolution
-- Use **30 runs** with **different random seeds** for each (problem, dimension, method, configuration) tuple.
-- Report at minimum: **best-of-runs**, **mean ± sd**, **median (Q1–Q3)**, and **success rate**.
-- Keep everything else fixed (budget, bounds, initialization type, parameter settings) so that observed variability is attributable to stochasticity rather than uncontrolled changes.
 
