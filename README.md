@@ -422,7 +422,7 @@ The following screenshot shows the **last iterations of Run 30** and the **final
 
 ### B) GUI
 
-The GUI uses the same `optimsolution.cfg` as the CLI, but it can apply **run-time overrides** by generating a temporary config snapshot for each run (without modifying your repository file).
+The GUI uses the same `optimsolution.cfg` as the CLI, but it can apply **run-time overrides** by generating a temporary config snapshot for each run.
 
 GUI overview: 
 
