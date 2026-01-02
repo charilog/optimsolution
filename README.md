@@ -348,15 +348,7 @@ cmake --build build --target optimsolution -j
 
 ## 4) Settings (optimsolution.cfg)
 
-### A) Console (CLI)
-
-The console solver reads experiment defaults from `optimsolution.cfg`.
-
-- The **`[global]`** section defines run-wide defaults (e.g., `population`, `max_evals`, `runs`, seeding).
-- A **method section** (e.g., `[jso]`, `[aarq]`, etc.) can **override** global keys on a per-method basis.
-- Additional sections (e.g., `[init]`, `[stop]`, `[sensitivity]`) configure initialization, termination, and sensitivity sweeps.
-
-### B) GUI
+### A) GUI
 
 The GUI uses the same `optimsolution.cfg` as the CLI, but it can apply **run-time overrides** by generating a temporary config snapshot for each run (without modifying your repository file).
 
@@ -366,6 +358,13 @@ GUI overview diagram:
 
 For details, see the PDF manual: [optimsolution_manual.pdf](./docs/optimsolution_manual.pdf)
 
+### B) Console (CLI)
+
+The console solver reads experiment defaults from `optimsolution.cfg`.
+
+- The **`[global]`** section defines run-wide defaults (e.g., `population`, `max_evals`, `runs`, seeding).
+- A **method section** (e.g., `[jso]`, `[aarq]`, etc.) can **override** global keys on a per-method basis.
+- Additional sections (e.g., `[init]`, `[stop]`, `[sensitivity]`) configure initialization, termination, and sensitivity sweeps.
 
 ### Key defaults
 ```ini
