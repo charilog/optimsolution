@@ -360,8 +360,7 @@ The console solver reads experiment defaults from `optimsolution.cfg`.
 
 The GUI uses the same `optimsolution.cfg` as the CLI, but it can apply **run-time overrides** by generating a temporary config snapshot for each run (without modifying your repository file).
 
-- GUI overview diagram: `./docs/optimsolution_gui.png`
-- GUI usage manual: `./docs/optimsolution_manual.pdf`
+GUI overview diagram: 
 
 ![optimsolution GUI](./docs/optimsolution_gui.png)
 
@@ -422,7 +421,7 @@ local_method = lbfgs
 
 ---
 
-## 5) Example run output (end of execution)
+## 5) Example run console output (end of execution)
 
 The following screenshot shows the **last iterations of Run 30** and the **final run summary** for:
 - **Method:** `arq`
