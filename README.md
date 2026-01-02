@@ -360,12 +360,12 @@ The console solver reads experiment defaults from `optimsolution.cfg`.
 
 The GUI uses the same `optimsolution.cfg` as the CLI, but it can apply **run-time overrides** by generating a temporary config snapshot for each run (without modifying your repository file).
 
-- GUI overview diagram: `optimsolution_gui.png`
-- GUI usage manual: `optimsolution_manual.pdf`
+- GUI overview diagram: `./doc/optimsolution_gui.png`
+- GUI usage manual: `./doc/optimsolution_manual.pdf`
 
-![optimsolution GUI](optimsolution_gui.png)
+![optimsolution GUI](./doc/optimsolution_gui.png)
 
-For details, see the PDF manual: [optimsolution_manual.pdf](optimsolution_manual.pdf)
+For details, see the PDF manual: [optimsolution_manual.pdf](./doc/optimsolution_manual.pdf)
 
 
 ### Key defaults
