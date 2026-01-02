@@ -92,7 +92,7 @@ Use the following **short names** in the command line:
 | `eld5` | Economic Load Dispatch - 5 (CEC2011 140-unit case) |
 | `ellipsoidal` | Ellipsoidal function |
 | `equalmaxima` | Equal Maxima function |
-| `expotential` | Expotential function  f(x)=1-exp(-0.5||x||^2) |
+| `expotential` | Expotential function  |
 | `fmsynth` | FM Synth Parameter Estimation |
 | `gallagher101` | Gallagher's Gaussian 101-peaks function |
 | `gallagher21` | Gallagher's Gaussian 21-me Peaks |
