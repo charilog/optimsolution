@@ -428,7 +428,7 @@ GUI overview:
 
 ![optimsolution GUI](./docs/optimsolution_gui.png)
 
-For details, see the PDF manual: [optimsolution_manual.pdf](./docs/optimsolution_manual.pdf)
+For details, see the PDF manual: [optimsolution_manual.pdf](./docs/optimsolutionManual_EN.pdf)
 
 
 
