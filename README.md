@@ -6,8 +6,8 @@
 
 Optimsolution is a C++ optimization framework designed for repeatable, high-throughput experimentation with population-based metaheuristics and numerical optimizers on both benchmark and application-driven objective functions. It provides a uniform command-line interface to execute a selected method on a selected problem under explicit computational budgets (e.g., maximum function evaluations and/or iterations), using consistent initialization and stopping rules. During execution, it logs progress and produces standardized end-of-run summaries (e.g., best/mean/dispersion, success metrics, and timing), enabling systematic empirical studies across methods, problems, and parameterizations. In addition, Optimsolution supports **parameter sensitivity analysis** for each optimizer by systematically varying method parameters (e.g., population size and control parameters such as F and CR) and comparing performance distributions across multiple independent runs under identical stopping rules, this workflow is configured via the `[sensitivity]` section in `optimsolution.cfg`.
 
-For details, see the PDF manual: [optimsolution_manual.pdf](./docs/optimsolutionManual_EN.pdf)
-
+For details, see the PDF English manual: [optimsolution_manual.pdf](./docs/optimsolutionManual_EN.pdf)
+For details, see the PDF Greek manual: [optimsolution_manual.pdf](./docs/optimsolutionManual_GR.pdf)
 ---
 
 ## 1) Available methods and problems (CLI)
