@@ -161,8 +161,6 @@ private:
   // State
   QString projectRoot_;
   QString settingsPath_;
-  QString factoryPath_;
-  QString fixedDimsPath_;
   int currentFixedDim_ = 0;
 
   std::unique_ptr<ConfigFile> cfg_;

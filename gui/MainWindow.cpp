@@ -1,8 +1,8 @@
 #include "MainWindow.h"
 #include "PathUtils.h"
-#include "FactoryIntrospect.h"
 #include "ConfigFile.h"
 #include "factory.h"
+#include "fixed_dims.h"
 #include "AnsiStrip.h"
 #include "CrashLog.h"
 
@@ -214,9 +214,34 @@ protected:
       if (n < 2) continue;
 
       QPainterPath path;
-      path.moveTo(mapX(s.x[0]), mapY(s.y[0]));
-      for (int i = 1; i < n; ++i) {
-        path.lineTo(mapX(s.x[i]), mapY(s.y[i]));
+
+      // NOTE:
+      // Convergence CSV may concatenate multiple runs into a single series.
+      // When a new run starts, the x-axis typically resets (e.g., iterations return to 0/1).
+      // Do not draw a line segment across that boundary.
+      bool penDown = false;
+      double prevX = 0.0;
+
+      for (int i = 0; i < n; ++i) {
+        const double xi = s.x[i];
+        const double yi = s.y[i];
+
+        if (!std::isfinite(xi) || !std::isfinite(yi)) {
+          penDown = false;
+          continue;
+        }
+
+        if (!penDown) {
+          path.moveTo(mapX(xi), mapY(yi));
+          penDown = true;
+        } else if (xi < prevX) {
+          // New run boundary (x reset): start a new sub-path.
+          path.moveTo(mapX(xi), mapY(yi));
+        } else {
+          path.lineTo(mapX(xi), mapY(yi));
+        }
+
+        prevX = xi;
       }
 
       QColor col;
@@ -271,15 +296,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   projectRoot_ = PathUtils::findProjectRootFrom(QDir::currentPath());
   if (projectRoot_.isEmpty()) projectRoot_ = QDir::currentPath();
-
-  factoryPath_ = PathUtils::findExistingFileUpwards(QDir::currentPath(), "src/factory.cpp");
-  fixedDimsPath_ = PathUtils::findExistingFileUpwards(QDir::currentPath(), "src/problems/fixed_dims.h");
   settingsPath_ = PathUtils::findExistingFileUpwards(QDir::currentPath(), "optimsolution.cfg");
 
   CrashLog::append("MainWindow: ctor begin.");
   CrashLog::append(QString("MainWindow: root=%1").arg(projectRoot_));
-  CrashLog::append(QString("MainWindow: factory=%1").arg(factoryPath_));
-  CrashLog::append(QString("MainWindow: fixed_dims=%1").arg(fixedDimsPath_));
   CrashLog::append(QString("MainWindow: settings=%1").arg(settingsPath_));
   buildUi();
   CrashLog::append("MainWindow: UI built.");
@@ -290,7 +310,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   populateSettingsTables();
   CrashLog::append("MainWindow: settings tables populated.");
 
-  setWindowTitle("optimsolution GUI (v30)");
+  setWindowTitle("optimsolution GUI (v31)");
 }
 
 MainWindow::~MainWindow() = default;
@@ -502,12 +522,27 @@ void MainWindow::onRefreshFactory() {
 }
 
 void MainWindow::loadFactoryLists() {
-  if (factoryPath_.isEmpty()) {
-    appendLog("factory.cpp not found (cannot populate drop-down lists).");
-    return;
+  // Portable discovery: ask the core factory for available short names.
+  // This allows the GUI to run from any directory (or from a deployed folder)
+  // without requiring access to the source tree.
+  QStringList methods;
+  QStringList problems;
+  try {
+    for (const auto& s : optimsolution::listMethodNames()) {
+      methods << QString::fromStdString(s);
+    }
+    for (const auto& s : optimsolution::listProblemNames()) {
+      problems << QString::fromStdString(s);
+    }
+  } catch (...) {
+    // Fall back to empty lists.
   }
 
-  FactoryLists lists = readFactoryLists(factoryPath_);
+  // Keep a stable, user-friendly order.
+  methods.removeDuplicates();
+  problems.removeDuplicates();
+  methods.sort(Qt::CaseInsensitive);
+  problems.sort(Qt::CaseInsensitive);
   methodBox_->blockSignals(true);
   problemBox_->blockSignals(true);
 
@@ -515,7 +550,7 @@ void MainWindow::loadFactoryLists() {
   problemBox_->clear();
 
   // Methods: display "Full name (short)" while storing the short name in itemData.
-  for (const QString& shortName : lists.methods) {
+  for (const QString& shortName : methods) {
     QString display = shortName;
     try {
       auto opt = optimsolution::makeMethod(shortName.toStdString());
@@ -532,7 +567,7 @@ void MainWindow::loadFactoryLists() {
   }
 
   // Problems: keep short name as display and itemData.
-  for (const QString& p : lists.problems) {
+  for (const QString& p : problems) {
     problemBox_->addItem(p, p);
   }
 
@@ -750,23 +785,7 @@ void MainWindow::onRemoveInitParam() {
 
 
 int MainWindow::fixedDimForProblem(const QString& problem) const {
-  if (fixedDimsPath_.isEmpty()) return 0;
-
-  QFile f(fixedDimsPath_);
-  if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return 0;
-
-  QString txt = QString::fromUtf8(f.readAll());
-
-  // common patterns: {"tersoffb", 24} or {"tersoffb",24}
-  QRegularExpression re(QStringLiteral(R"OPTIM(\{\s*"([^"]+)"\s*,\s*([0-9]+)\s*\})OPTIM"));
-  auto it = re.globalMatch(txt);
-  while (it.hasNext()) {
-    auto m = it.next();
-    if (m.captured(1).trimmed().compare(problem.trimmed(), Qt::CaseInsensitive) == 0) {
-      return m.captured(2).toInt();
-    }
-  }
-  return 0;
+  return optimsolution::getFixedDimOrZero(problem.toStdString());
 }
 
 void MainWindow::updateDimUiForProblem(const QString& problem) {
