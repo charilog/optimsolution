@@ -1,63 +1,80 @@
-# optimsolution_gui.cmake
-# Injects a Qt Widgets GUI target without modifying existing project files.
+# cmake/optimsolution_gui.cmake
 #
-# Usage:
-#   cmake -S . -B build "-DCMAKE_PROJECT_INCLUDE:FILEPATH=$PWD/cmake/optimsolution_gui.cmake" -DCMAKE_PREFIX_PATH="C:\Qt\6.x.x\msvc2022_64"
+# Loaded via:
+#   -DCMAKE_PROJECT_INCLUDE=cmake/optimsolution_gui.cmake
 #
-# Then:
-#   cmake --build build --config Release --target optimsolution_gui
+# Defines optimsolution_add_gui(), called by the top-level CMakeLists.txt after optimcore exists.
 
-if (TARGET optimsolution_gui)
-  return()
+if(DEFINED OPTIMSOLUTION_GUI_CMAKE_INCLUDED)
+    return()
 endif()
+set(OPTIMSOLUTION_GUI_CMAKE_INCLUDED 1)
 
-find_package(Qt6 COMPONENTS Widgets REQUIRED)
+function(optimsolution_add_gui)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
-set(GUI_DIR "${CMAKE_SOURCE_DIR}/gui")
+    set(CMAKE_AUTOMOC ON)
+    set(CMAKE_AUTOUIC ON)
+    set(CMAKE_AUTORCC ON)
 
-add_executable(optimsolution_gui
-  "${GUI_DIR}/optimsolution_gui_main.cpp"
-  "${GUI_DIR}/MainWindow.cpp"
-  "${GUI_DIR}/MainWindow.h"
-  "${GUI_DIR}/PathUtils.cpp"
-  "${GUI_DIR}/PathUtils.h"
-  "${GUI_DIR}/FactoryIntrospect.cpp"
-  "${GUI_DIR}/FactoryIntrospect.h"
-  "${GUI_DIR}/ConfigFile.cpp"
-  "${GUI_DIR}/ConfigFile.h"
-  "${GUI_DIR}/AnsiStrip.cpp"
-  "${GUI_DIR}/AnsiStrip.h"
-  "${GUI_DIR}/CrashLog.cpp"
-  "${GUI_DIR}/CrashLog.h"
-)
+    # REQUIRED GUI sources (must include the GUI entrypoint that defines main()).
+    set(OPTIMSOLUTION_GUI_CPP
+        "${CMAKE_SOURCE_DIR}/gui/optimsolution_gui_main.cpp"
+        "${CMAKE_SOURCE_DIR}/gui/MainWindow.cpp"
+        "${CMAKE_SOURCE_DIR}/gui/AnsiStrip.cpp"
+        "${CMAKE_SOURCE_DIR}/gui/ConfigFile.cpp"
+        "${CMAKE_SOURCE_DIR}/gui/CrashLog.cpp"
+        "${CMAKE_SOURCE_DIR}/gui/FactoryIntrospect.cpp"
+        "${CMAKE_SOURCE_DIR}/gui/PathUtils.cpp"
+    )
 
-target_compile_features(optimsolution_gui PRIVATE cxx_std_17)
-set_target_properties(optimsolution_gui PROPERTIES
-  AUTOMOC ON
-  AUTOUIC ON
-  AUTORCC OFF
-)
+    set(OPTIMSOLUTION_GUI_HDR
+        "${CMAKE_SOURCE_DIR}/gui/MainWindow.h"
+        "${CMAKE_SOURCE_DIR}/gui/AnsiStrip.h"
+        "${CMAKE_SOURCE_DIR}/gui/ConfigFile.h"
+        "${CMAKE_SOURCE_DIR}/gui/CrashLog.h"
+        "${CMAKE_SOURCE_DIR}/gui/FactoryIntrospect.h"
+        "${CMAKE_SOURCE_DIR}/gui/PathUtils.h"
+    )
 
-target_include_directories(optimsolution_gui PRIVATE
-  "${CMAKE_SOURCE_DIR}/include"
-  "${GUI_DIR}"
-)
+    # Resources: required for window/taskbar icon.
+    set(OPTIMSOLUTION_GUI_RES
+        "${CMAKE_SOURCE_DIR}/gui/resources.qrc"
+    )
 
-target_link_libraries(optimsolution_gui PRIVATE
-  Qt6::Widgets
-  optimcore
-)
+    # Windows executable icon (Explorer file icon).
+    set(OPTIMSOLUTION_GUI_RC "")
+    if(WIN32)
+        set(OPTIMSOLUTION_GUI_RC "${CMAKE_SOURCE_DIR}/gui/optimsolution_gui.rc")
+    endif()
 
-if (MSVC)
-  target_compile_options(optimsolution_gui PRIVATE /Zc:__cplusplus)
-endif()
+    foreach(_f IN LISTS OPTIMSOLUTION_GUI_CPP OPTIMSOLUTION_GUI_HDR OPTIMSOLUTION_GUI_RES)
+        if(NOT EXISTS "${_f}")
+            message(FATAL_ERROR "Required GUI file not found: ${_f}")
+        endif()
+    endforeach()
+    if(WIN32 AND NOT EXISTS "${OPTIMSOLUTION_GUI_RC}")
+        message(FATAL_ERROR "Required Windows resource file not found: ${OPTIMSOLUTION_GUI_RC}")
+    endif()
 
-# Ensure the CLI executable is available next to the GUI.
-if (TARGET optimsolution)
-  add_custom_command(TARGET optimsolution_gui POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:optimsolution>
-            $<TARGET_FILE_DIR:optimsolution_gui>/$<TARGET_FILE_NAME:optimsolution>
-    COMMENT "Copying optimsolution next to optimsolution_gui"
-  )
-endif()
+    add_executable(optimsolution_gui WIN32
+        ${OPTIMSOLUTION_GUI_CPP}
+        ${OPTIMSOLUTION_GUI_HDR}
+        ${OPTIMSOLUTION_GUI_RES}
+        ${OPTIMSOLUTION_GUI_RC}
+    )
+    set_target_properties(optimsolution_gui PROPERTIES WIN32_EXECUTABLE TRUE)
+
+    target_link_libraries(optimsolution_gui PRIVATE optimcore Qt6::Widgets)
+
+    target_include_directories(optimsolution_gui PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+        "${CMAKE_SOURCE_DIR}/gui"
+    )
+
+    if(MSVC)
+        target_link_options(optimsolution_gui PRIVATE "/SUBSYSTEM:WINDOWS")
+    endif()
+
+    message(STATUS "optimsolution_gui: resources.qrc enabled; window icon will be loaded from :/icons/optimsolution.png")
+endfunction()
