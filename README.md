@@ -153,199 +153,81 @@ Use the following **short names** in the command line:
 - Visual Studio 2022 (Community or Build Tools)
   - Workload: **Desktop development with C++**
   - Components: **MSVC v143**, **Windows 10/11 SDK**
-- CMake (if not installed via Visual Studio): ensure it is available in your **PATH**
-- (Optional) Ninja for faster builds
+- CMake: ensure it is available in your **PATH**
 - **Qt 6.x (MSVC 2022 x64)** (required only for the GUI target), e.g. `C:\Qt\6.10.1\msvc2022_64`
 
 > Recommended shell: **x64 Native Tools Command Prompt for VS 2022** or **Developer PowerShell for VS 2022**.
 
-### A) Build and run the console solver (CLI)
-
-#### Debug
-```powershell
-1] Delete directory "build"
-Remove-Item -Recurse -Force .\build -ErrorAction SilentlyContinue
-
-2] Configure (Visual Studio generator)
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-
-3] Build CLI (Debug)
-cmake --build build --config Debug --target optimsolution
-
-4] Run example
-.\build\Debug\optimsolution.exe jso rastrigin 30
-```
-
-#### Release
-```powershell
-1] Delete directory "build"
-Remove-Item -Recurse -Force .\build -ErrorAction SilentlyContinue
-
-2] Configure (Visual Studio generator)
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-
-3] Build CLI (Release)
-cmake --build build --config Release --target optimsolution
-
-4] Run example
-.\build\Release\optimsolution.exe jso rastrigin 30
-```
-
-### B) Build and run the GUI (and the CLI) from the same build directory
+### Build (GUI + CLI) — Debug
 
 This configuration enables the GUI target through:
 - `CMAKE_PROJECT_INCLUDE=cmake/optimsolution_gui.cmake`
 - `CMAKE_PREFIX_PATH=<Qt MSVC folder>`
 
-#### Debug (GUI + CLI)
 ```powershell
-1] Delete directory "build"
-Remove-Item -Recurse -Force .\build -ErrorAction SilentlyContinue
-
-2] Configure (GUI enabled)
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+1] Configure (GUI enabled)
+cmake -S . -B build `
    "-DCMAKE_PROJECT_INCLUDE:FILEPATH=$PWD/cmake/optimsolution_gui.cmake" `
    "-DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\msvc2022_64"
 
-3] Build GUI (Debug)
+2] Build for GUI (Debug)
 cmake --build build --config Debug --target optimsolution_gui
 
-4] Build CLI (Debug)
+3] Build for CLI (Debug)
 cmake --build build --config Debug --target optimsolution
 
-5] Deploy Qt runtime next to the GUI executable (required when running outside Qt/VS environment)
+4] Export Qt runtime DLLs next to the GUI executable (required when running outside Qt/VS environment)
 & "C:\Qt\6.10.1\msvc2022_64\bin\windeployqt.exe" `
    --no-translations --compiler-runtime `
    ".\build\Debug\optimsolution_gui.exe"
 
-6] Run GUI
+5] Run GUI
 .\build\Debug\optimsolution_gui.exe
+
+6] Run CLI (example)
+.\build\Debug\optimsolution.exe arq tersoffc
 ```
 
-#### Release (GUI + CLI)
-```powershell
-1] Delete directory "build"
-Remove-Item -Recurse -Force .\build -ErrorAction SilentlyContinue
-
-2] Configure (GUI enabled)
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
-   "-DCMAKE_PROJECT_INCLUDE:FILEPATH=$PWD/cmake/optimsolution_gui.cmake" `
-   "-DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\msvc2022_64"
-
-3] Build GUI (Release)
-cmake --build build --config Release --target optimsolution_gui
-
-4] Build CLI (Release)
-cmake --build build --config Release --target optimsolution
-
-5] Deploy Qt runtime next to the GUI executable
-& "C:\Qt\6.10.1\msvc2022_64\bin\windeployqt.exe" `
-   --no-translations --compiler-runtime `
-   ".\build\Release\optimsolution_gui.exe"
-
-6] Run GUI
-.\build\Release\optimsolution_gui.exe
-```
-
-
----
 
 ## 3) Linux (Console + GUI)
 
 ### Prerequisites
 - C++ toolchain: GCC or Clang
-- CMake (3.20+ recommended)
-- Build backend: Ninja (recommended) or Make
-- **Qt 6.x** (required only for the GUI target)
+- CMake
+- Build backend: Ninja (recommended)
+- **Qt 6.x development packages** (required only for the GUI target)
 
 > Recommended shell: a standard terminal in the repository root.
 
-### A) Build and run the console solver (CLI)
+### Build (GUI + CLI) — Debug
 
-#### Debug
 ```bash
-1] Delete directory "build"
-rm -rf build
+----------linux--------
+1]
+sudo apt update
 
-2] Configure (Debug)
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+2]
+sudo apt upgrade
 
-3] Build CLI
-cmake --build build --target optimsolution -j
+3] Install qt-dev-tools
+sudo apt install qt6-base-dev qt6-base-dev-tools qt6-tools-dev qt6-tools-dev-tools
 
-4] Run example
-./build/optimsolution jso rastrigin 30
-```
+4] Configure (GUI enabled)
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PROJECT_INCLUDE=cmake/optimsolution_gui.cmake
 
-#### Release
-```bash
-1] Delete directory "build"
-rm -rf build
+5] Build for GUI
+cmake --build build --target optimsolution_gui
 
-2] Configure (Release)
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+6] Build for CLI
+cmake --build build --target optimsolution
 
-3] Build CLI
-cmake --build build --target optimsolution -j
-
-4] Run example
-./build/optimsolution jso rastrigin 30
-```
-
-### B) Build and run the GUI (and the CLI) from the same build directory
-
-This configuration enables the GUI target through:
-- `CMAKE_PROJECT_INCLUDE=cmake/optimsolution_gui.cmake`
-- `CMAKE_PREFIX_PATH=<Qt folder>`
-
-> Example Qt prefix (varies by distribution/installation):
-> - System Qt: `/usr/lib/qt6`
-> - Qt online installer: `~/Qt/6.x.x/gcc_64`
-
-#### Debug (GUI + CLI)
-```bash
-1] Delete directory "build"
-rm -rf build
-
-2] Configure (GUI enabled, Debug)
-cmake -S . -B build \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_PROJECT_INCLUDE:FILEPATH="$PWD/cmake/optimsolution_gui.cmake" \
-  -DCMAKE_PREFIX_PATH="$HOME/Qt/6.10.1/gcc_64"
-
-3] Build GUI
-cmake --build build --target optimsolution_gui -j
-
-4] Build CLI
-cmake --build build --target optimsolution -j
-
-5] Run GUI
+7] Run for GUI
 ./build/optimsolution_gui
+
+8] Run for CLI
+./build/optimsolution arq tersoffc
 ```
 
-#### Release (GUI + CLI)
-```bash
-1] Delete directory "build"
-rm -rf build
-
-2] Configure (GUI enabled, Release)
-cmake -S . -B build \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_PROJECT_INCLUDE:FILEPATH="$PWD/cmake/optimsolution_gui.cmake" \
-  -DCMAKE_PREFIX_PATH="$HOME/Qt/6.10.1/gcc_64"
-
-3] Build GUI
-cmake --build build --target optimsolution_gui -j
-
-4] Build CLI
-cmake --build build --target optimsolution -j
-
-5] Run GUI
-./build/optimsolution_gui
-```
-
-
----
 
 ## 4) Settings (optimsolution.cfg)
 
