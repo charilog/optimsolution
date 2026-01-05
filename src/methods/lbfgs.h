@@ -23,6 +23,10 @@ public:
     LBFGS() = default;
     ~LBFGS() override = default;
 
+	std::string methodShortName() const override { return "lbfgs"; }
+
+    std::string methodFullName() const override { return "Limited-memory Broyden-Fletcher-Goldfarb-Shanno (Local Method)"; }
+
     // parameter loading from the [lbfgs] section in the configuration
     void configure(const MethodConfig& mc) override;
 

@@ -21,6 +21,10 @@ class NM : public Optimizer {
 public:
     NM() = default;
     ~NM() override = default;
+	
+	std::string methodShortName() const override { return "nd"; }
+
+    std::string methodFullName() const override { return "Nelder-Mead Simplex (Local Method)"; }
 
     // Reads parameters from [nm] in the configuration file
     void configure(const MethodConfig& mc) override;

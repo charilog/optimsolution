@@ -21,6 +21,10 @@ class GD : public Optimizer {
 public:
     GD() = default;
     ~GD() override = default;
+	
+	std::string methodShortName() const override { return "gd"; }
+
+    std::string methodFullName() const override { return "Gradient Descent (Local Method)"; }
 
     // Reads parameters from the [gd] section of the cfg (or from the integration command line)
     void configure(const MethodConfig& mc) override;

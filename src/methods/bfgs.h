@@ -21,6 +21,12 @@ class BFGS : public Optimizer {
 public:
     BFGS();
     ~BFGS() = default;
+	
+	std::string methodShortName() const override { return "bfgs"; }
+
+    std::string methodFullName() const override {
+        return "Broyden-Fletcher-Goldfarb-Shanno (Local Method)";
+    }
 
     void configure(const MethodConfig& mc);
 
