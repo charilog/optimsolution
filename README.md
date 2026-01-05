@@ -36,7 +36,7 @@ Use the following **short names** in the command line:
 | `ga` | Genetic Algorithm (GA) |
 | `gao` | Giant Armadillo Optimizer (GAO) |
 | `garq` | Golden ARQ with Reinforcement Learning (GARQ) |
-| `gd` | Gradient Descent (local method) |
+| `gd` | radient Descent (local method) |
 | `gde` | Golden Differential Evolution (pbest/1+archive) |
 | `gderl` | Golden Differential Evolution with Reinforcement Learning (gDE-rl) |
 | `gwo` | Grey Wolf Optimizer (GWO) |
@@ -148,6 +148,11 @@ Use the following **short names** in the command line:
 ---
 
 ## 2) Windows (Console + GUI)
+
+> **Windows installer available (fastest path):** Download and run **Optimsolution.msi** from:
+>
+> **[Optimsolution.msi (Windows Installer)](http://dit.uoi.gr/files/Optimsolution.msi)**
+
 
 ### Prerequisites
 - Visual Studio 2022 (Community or Build Tools)
@@ -357,6 +362,5 @@ GUI overview:
 ![optimsolution GUI](./docs/optimsolution_gui.png)
 
 For details, see the PDF manual: [optimsolution_manual.pdf](./docs/optimsolutionManual_EN.pdf)
-
 
 
