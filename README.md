@@ -36,7 +36,7 @@ Use the following **short names** in the command line:
 | `ga` | Genetic Algorithm (GA) |
 | `gao` | Giant Armadillo Optimizer (GAO) |
 | `garq` | Golden ARQ with Reinforcement Learning (GARQ) |
-| `gd` | radient Descent (local method) |
+| `gd` | Gradient Descent (local method) |
 | `gde` | Golden Differential Evolution (pbest/1+archive) |
 | `gderl` | Golden Differential Evolution with Reinforcement Learning (gDE-rl) |
 | `gwo` | Grey Wolf Optimizer (GWO) |
