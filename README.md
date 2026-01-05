@@ -165,26 +165,30 @@ This configuration enables the GUI target through:
 - `CMAKE_PREFIX_PATH=<Qt MSVC folder>`
 
 ```powershell
-1] Configure (GUI enabled)
 cmake -S . -B build `
    "-DCMAKE_PROJECT_INCLUDE:FILEPATH=$PWD/cmake/optimsolution_gui.cmake" `
    "-DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\msvc2022_64"
+```
 
-2] Build for GUI (Debug)
+```powershell
 cmake --build build --config Debug --target optimsolution_gui
+```
 
-3] Build for CLI (Debug)
+```powershell
 cmake --build build --config Debug --target optimsolution
+```
 
-4] Export Qt runtime DLLs next to the GUI executable (required when running outside Qt/VS environment)
+```powershell
 & "C:\Qt\6.10.1\msvc2022_64\bin\windeployqt.exe" `
    --no-translations --compiler-runtime `
    ".\build\Debug\optimsolution_gui.exe"
+```
 
-5] Run GUI
+```powershell
 .\build\Debug\optimsolution_gui.exe
+```
 
-6] Run CLI (example)
+```powershell
 .\build\Debug\optimsolution.exe arq tersoffc
 ```
 
@@ -202,29 +206,34 @@ cmake --build build --config Debug --target optimsolution
 ### Build (GUI + CLI) — Debug
 
 ```bash
-----------linux--------
-1]
 sudo apt update
+```
 
-2]
+```bash
 sudo apt upgrade
+```
 
-3] Install qt-dev-tools
+```bash
 sudo apt install qt6-base-dev qt6-base-dev-tools qt6-tools-dev qt6-tools-dev-tools
+```
 
-4] Configure (GUI enabled)
+```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PROJECT_INCLUDE=cmake/optimsolution_gui.cmake
+```
 
-5] Build for GUI
+```bash
 cmake --build build --target optimsolution_gui
+```
 
-6] Build for CLI
+```bash
 cmake --build build --target optimsolution
+```
 
-7] Run for GUI
+```bash
 ./build/optimsolution_gui
+```
 
-8] Run for CLI
+```bash
 ./build/optimsolution arq tersoffc
 ```
 
