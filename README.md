@@ -158,35 +158,49 @@ Use the following **short names** in the command line:
 
 > Recommended shell: **x64 Native Tools Command Prompt for VS 2022** or **Developer PowerShell for VS 2022**.
 
-### Build (GUI + CLI) — Debug
+### Build and run (GUI + CLI) — Debug
 
-This configuration enables the GUI target through:
-- `CMAKE_PROJECT_INCLUDE=cmake/optimsolution_gui.cmake`
-- `CMAKE_PREFIX_PATH=<Qt MSVC folder>`
+Delete the existing `build` directory (clean build).
 
 ```powershell
-cmake -S . -B build `
-   "-DCMAKE_PROJECT_INCLUDE:FILEPATH=$PWD/cmake/optimsolution_gui.cmake" `
-   "-DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\msvc2022_64"
+Remove-Item -Recurse -Force .\build -ErrorAction SilentlyContinue
 ```
+
+Configure the project with the GUI target enabled (Qt path must match your installation).
+
+```powershell
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+  "-DCMAKE_PROJECT_INCLUDE:FILEPATH=$PWD/cmake/optimsolution_gui.cmake" `
+  "-DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\msvc2022_64"
+```
+
+Build the GUI executable (Debug).
 
 ```powershell
 cmake --build build --config Debug --target optimsolution_gui
 ```
 
+Build the CLI executable (Debug).
+
 ```powershell
 cmake --build build --config Debug --target optimsolution
 ```
 
+Deploy the required Qt runtime next to the GUI executable (run this after building the GUI).
+
 ```powershell
 & "C:\Qt\6.10.1\msvc2022_64\bin\windeployqt.exe" `
-   --no-translations --compiler-runtime `
-   ".\build\Debug\optimsolution_gui.exe"
+  --no-translations --compiler-runtime `
+  ".\build\Debug\optimsolution_gui.exe"
 ```
+
+Run the GUI.
 
 ```powershell
 .\build\Debug\optimsolution_gui.exe
 ```
+
+Run the CLI (example).
 
 ```powershell
 .\build\Debug\optimsolution.exe arq tersoffc
@@ -203,35 +217,57 @@ cmake --build build --config Debug --target optimsolution
 
 > Recommended shell: a standard terminal in the repository root.
 
-### Build (GUI + CLI) — Debug
+### Build and run (GUI + CLI) — Debug
+
+Update package lists.
 
 ```bash
 sudo apt update
 ```
 
+Upgrade installed packages.
+
 ```bash
 sudo apt upgrade
 ```
+
+Install Qt6 development packages (required for the GUI target).
 
 ```bash
 sudo apt install qt6-base-dev qt6-base-dev-tools qt6-tools-dev qt6-tools-dev-tools
 ```
 
+Delete the existing `build` directory (clean build).
+
+```bash
+rm -rf build
+```
+
+Configure (GUI enabled, Debug).
+
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PROJECT_INCLUDE=cmake/optimsolution_gui.cmake
 ```
+
+Build the GUI.
 
 ```bash
 cmake --build build --target optimsolution_gui
 ```
 
+Build the CLI.
+
 ```bash
 cmake --build build --target optimsolution
 ```
 
+Run the GUI.
+
 ```bash
 ./build/optimsolution_gui
 ```
+
+Run the CLI (example).
 
 ```bash
 ./build/optimsolution arq tersoffc
