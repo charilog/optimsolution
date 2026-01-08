@@ -15,6 +15,7 @@ class QPushButton;
 class QTabWidget;
 class QLabel;
 class QCheckBox;
+class QRadioButton;
 QT_END_NAMESPACE
 
 namespace optimsolution_gui {
@@ -38,9 +39,14 @@ private:
     QLabel* convergenceInfo = nullptr;
     QWidget* convergencePlot = nullptr; // ConvergencePlotWidget
     QCheckBox* overlayMethodChk = nullptr; // overlay all problems for this method
+    QCheckBox* overlayProblemChk = nullptr; // overlay all methods for this problem
+    QRadioButton* xAxisIterRadio = nullptr; // x-axis mode: iterations
+    QRadioButton* xAxisEvalRadio = nullptr; // x-axis mode: function evaluations
     QPushButton* exportConvergencePngBtn = nullptr;
-    QVector<double> convX;
+    QVector<double> convIterX;
+    QVector<double> convEvalX;
     QVector<double> convY;
+    bool convHasEvalX = false;
     bool convLoaded = false;
     QString runtimeWorkingDir;
     QString runtimeCfgPath;
@@ -80,6 +86,8 @@ private slots:
 
   void onOutputTabCloseRequested(int index);
   void onOverlayMethodToggled(bool checked);
+  void onOverlayProblemToggled(bool checked);
+  void onConvergenceXAxisToggled(bool checked);
 
   void onSettingItemChanged(int row, int column);
 

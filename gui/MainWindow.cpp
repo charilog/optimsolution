@@ -50,14 +50,18 @@
 #include <QStringConverter>
 #include <QDirIterator>
 #include <QCheckBox>
+#include <QRadioButton>
+#include <QButtonGroup>
 
 namespace optimsolution_gui {
 
 // Forward declarations (file-scope helpers).
 static bool parseConvergenceCsvFile(const QString& path,
-                                   QVector<double>& outX,
+                                   QVector<double>& outIterX,
+                                   QVector<double>& outEvalX,
                                    QVector<double>& outY,
-                                   QString& outInfo);
+                                   QString& outInfo,
+                                   bool* outHasEvalX = nullptr);
 
 // Lightweight plot widget (no QtCharts dependency).
 class ConvergencePlotWidget final : public QWidget {
@@ -90,6 +94,11 @@ public:
 
   void setSeriesList(QVector<Series> series) {
     series_ = std::move(series);
+    update();
+  }
+
+  void setXAxisTitle(const QString& title) {
+    xTitle_ = title;
     update();
   }
 
@@ -191,7 +200,7 @@ protected:
 
       // X title.
       p.drawText(QRect(plot.left(), plot.bottom() + 26, plot.width(), 22),
-                 Qt::AlignHCenter | Qt::AlignTop, "Iterations");
+                 Qt::AlignHCenter | Qt::AlignTop, xTitle_.isEmpty() ? "Iterations" : xTitle_);
 
       // Y title (rotated 90 degrees).
       p.save();
@@ -279,6 +288,7 @@ protected:
 
 private:
   QVector<Series> series_;
+  QString xTitle_ = "Iterations";
 };
 
 static void setupTable(QTableWidget* t, const QStringList& headers) {
@@ -310,7 +320,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   populateSettingsTables();
   CrashLog::append("MainWindow: settings tables populated.");
 
-  setWindowTitle("optimsolution GUI (v31)");
+  setWindowTitle("optimsolution GUI (v32)");
 }
 
 MainWindow::~MainWindow() = default;
@@ -696,17 +706,10 @@ void MainWindow::onRemoveGlobalParam() {
   if (row < 0) return;
 
   QTableWidgetItem* keyItem = runTable_->item(row, 0);
-  QTableWidgetItem* srcItem = runTable_->item(row, 2);
   const QString key = keyItem ? keyItem->text().trimmed() : QString();
-  const QString src = srcItem ? srcItem->text().trimmed() : QString("global");
 
   if (cfg_ && cfg_->isLoaded() && !key.isEmpty()) {
-    if (src.compare("method", Qt::CaseInsensitive) == 0) {
-      const QString method = currentMethodShort();
-      if (!method.isEmpty()) cfg_->removeKey(method, key);
-    } else {
-      cfg_->removeKey("global", key);
-    }
+    cfg_->removeKey("global", key);
   }
 
   runTable_->removeRow(row);
@@ -899,9 +902,13 @@ int MainWindow::createOutputRunTab(const QString& methodShort, const QString& pr
 
   auto* convTop = new QHBoxLayout();
   auto* overlayMethodChk = new QCheckBox("Overlay all problems for this method", convTab);
+  auto* overlayProblemChk = new QCheckBox("Overlay all methods for this problem", convTab);
+  overlayProblemChk->setChecked(false);
+  connect(overlayProblemChk, &QCheckBox::toggled, this, &MainWindow::onOverlayProblemToggled);
   overlayMethodChk->setChecked(false);
   connect(overlayMethodChk, &QCheckBox::toggled, this, &MainWindow::onOverlayMethodToggled);
   convTop->addWidget(overlayMethodChk);
+  convTop->addWidget(overlayProblemChk);
 
   auto* exportPngBtn = new QPushButton("Export PNG…", convTab);
   connect(exportPngBtn, &QPushButton::clicked, this, &MainWindow::onExportConvergencePng);
@@ -915,6 +922,25 @@ int MainWindow::createOutputRunTab(const QString& methodShort, const QString& pr
   convLay->addWidget(convInfo);
   auto* convPlot = new ConvergencePlotWidget(convTab);
   convLay->addWidget(convPlot, 1);
+
+  // X-axis mode selector (placed under the plot).
+  auto* xAxisRow = new QHBoxLayout();
+  xAxisRow->addStretch(1);
+  auto* xIterRadio = new QRadioButton("Iterations", convTab);
+  auto* xEvalRadio = new QRadioButton("Function Evaluations", convTab);
+  xIterRadio->setChecked(true);
+  xEvalRadio->setChecked(false);
+  auto* xAxisGroup = new QButtonGroup(convTab);
+  xAxisGroup->setExclusive(true);
+  xAxisGroup->addButton(xIterRadio);
+  xAxisGroup->addButton(xEvalRadio);
+  connect(xIterRadio, &QRadioButton::toggled, this, &MainWindow::onConvergenceXAxisToggled);
+  connect(xEvalRadio, &QRadioButton::toggled, this, &MainWindow::onConvergenceXAxisToggled);
+  xAxisRow->addWidget(xIterRadio);
+  xAxisRow->addSpacing(12);
+  xAxisRow->addWidget(xEvalRadio);
+  xAxisRow->addStretch(1);
+  convLay->addLayout(xAxisRow);
   inner->addTab(convTab, "Convergence");
 
   const int tabIndex = outputTabs_->addTab(page, title);
@@ -933,6 +959,9 @@ int MainWindow::createOutputRunTab(const QString& methodShort, const QString& pr
   run.convergenceInfo = convInfo;
   run.convergencePlot = convPlot;
   run.overlayMethodChk = overlayMethodChk;
+  run.overlayProblemChk = overlayProblemChk;
+  run.xAxisIterRadio = xIterRadio;
+  run.xAxisEvalRadio = xEvalRadio;
   run.exportConvergencePngBtn = exportPngBtn;
   run.convLoaded = false;
   outputRuns_.push_back(std::move(run));
@@ -962,8 +991,10 @@ void MainWindow::tryLoadConvergenceForTab(int index) {
 
   // Reset stored series for this tab.
   tab->convLoaded = false;
-  tab->convX.clear();
+  tab->convIterX.clear();
+  tab->convEvalX.clear();
   tab->convY.clear();
+  tab->convHasEvalX = false;
 
   if (tab->runtimeWorkingDir.isEmpty()) {
     tab->convergenceInfo->setText("No previous run information available.");
@@ -1027,16 +1058,19 @@ void MainWindow::tryLoadConvergenceForTab(int index) {
     return a.mtime > b.mtime;
   });
 
-  QVector<double> x;
+  QVector<double> iterX;
+  QVector<double> evalX;
   QVector<double> y;
   QString info;
   QString loadedPath;
+  bool hasEvalX = false;
 
   // Try the best-scoring recent candidates first, but keep a hard cap on attempts.
   const int maxAttempts = std::min(40, int(candidates.size()));
   for (int i = 0; i < maxAttempts; ++i) {
-    x.clear(); y.clear(); info.clear();
-    if (parseConvergenceCsvFile(candidates[i].path, x, y, info)) {
+    iterX.clear(); evalX.clear(); y.clear(); info.clear();
+    hasEvalX = false;
+    if (parseConvergenceCsvFile(candidates[i].path, iterX, evalX, y, info, &hasEvalX)) {
       loadedPath = candidates[i].path;
       break;
     }
@@ -1051,9 +1085,20 @@ void MainWindow::tryLoadConvergenceForTab(int index) {
     return;
   }
 
-  tab->convX = x;
+  tab->convIterX = iterX;
+  tab->convEvalX = evalX;
   tab->convY = y;
+  tab->convHasEvalX = hasEvalX;
   tab->convLoaded = true;
+
+  // Enable/disable x-axis mode depending on what the CSV contains.
+  if (tab->xAxisEvalRadio) {
+    tab->xAxisEvalRadio->setEnabled(tab->convHasEvalX);
+    if (!tab->convHasEvalX && tab->xAxisEvalRadio->isChecked() && tab->xAxisIterRadio) {
+      QSignalBlocker b(tab->xAxisIterRadio);
+      tab->xAxisIterRadio->setChecked(true);
+    }
+  }
 
   tab->convergenceInfo->setText(QString("%1\n%2").arg(info).arg(loadedPath));
   updateConvergencePlotForTab(index);
@@ -1063,6 +1108,15 @@ void MainWindow::tryLoadConvergenceForTab(int index) {
     if (!outputRuns_[i].overlayMethodChk) continue;
     if (!outputRuns_[i].overlayMethodChk->isChecked()) continue;
     if (outputRuns_[i].methodShort.compare(tab->methodShort, Qt::CaseInsensitive) != 0) continue;
+    updateConvergencePlotForTab(i);
+  }
+
+  // If other tabs for the same problem are in overlay mode, refresh them as well.
+  for (int i = 0; i < int(outputRuns_.size()); ++i) {
+    if (!outputRuns_[i].overlayProblemChk) continue;
+    if (!outputRuns_[i].overlayProblemChk->isChecked()) continue;
+    if (outputRuns_[i].problemShort.compare(tab->problemShort, Qt::CaseInsensitive) != 0) continue;
+    if (tab->problemDim > 0 && outputRuns_[i].problemDim > 0 && outputRuns_[i].problemDim != tab->problemDim) continue;
     updateConvergencePlotForTab(i);
   }
 }
@@ -1656,12 +1710,13 @@ void MainWindow::populateSettingsTables() {
   CrashLog::append(QString("populateSettingsTables: methodText=%1").arg(method));
   if (method.isEmpty()) method = "method";
 
-  // Effective Global = [global] + [method]
-  CrashLog::append("populateSettingsTables: computing effectiveGlobalMap...");
-  QMap<QString, QString> eff = cfg_->effectiveRunMap(method);
-  CrashLog::append(QString("populateSettingsTables: effectiveRunMap keys=%1").arg(eff.size()));
+  // Global tab must reflect exactly the keys present in the [global] section of the loaded
+  // settings file. Method overrides are shown only in the Method tab.
+  CrashLog::append("populateSettingsTables: reading [global]...");
+  const auto globalMap = cfg_->sectionMap("global");
+  CrashLog::append(QString("populateSettingsTables: global keys=%1").arg(globalMap.size()));
   CrashLog::append("populateSettingsTables: fill Global table...");
-  fillKVTable(runTable_, eff, true, [&](const QString& k){ return cfg_->sourceOfEffectiveKey(method, k); });
+  fillKVTable(runTable_, globalMap, true, [&](const QString&){ return QStringLiteral("global"); });
   CrashLog::append("populateSettingsTables: Global table filled.");
 
   // Stop
@@ -1734,27 +1789,19 @@ void MainWindow::onSettingItemChanged(int row, int column) {
   if (!senderTable) return;
   if (!cfg_ || !cfg_->isLoaded()) return;
 
-  // Global tab is an "effective" view (global + method overrides). Allow adding/removing/renaming
-  // arbitrary keys by editing the Key/Value columns; the Source column determines which section
-  // is updated (global vs current method section).
+  // Global tab edits map strictly to the [global] section of the loaded settings file.
   if (senderTable == runTable_) {
     if (column != 0 && column != 1) return;
 
     QTableWidgetItem* keyItem = senderTable->item(row, 0);
     QTableWidgetItem* valItem = senderTable->item(row, 1);
-    QTableWidgetItem* srcItem = senderTable->item(row, 2);
     if (!keyItem || !valItem) return;
 
     const QString newKey = keyItem->text().trimmed();
     const QString value = valItem->text();
     if (newKey.isEmpty()) return;
 
-    QString targetSection = "global";
-    const QString src = srcItem ? srcItem->text().trimmed() : QString("global");
-    if (src.compare("method", Qt::CaseInsensitive) == 0) {
-      const QString method = currentMethodShort();
-      if (!method.isEmpty()) targetSection = method;
-    }
+    const QString targetSection = "global";
 
     const QString oldKey = keyItem->data(Qt::UserRole).toString().trimmed();
 
@@ -1910,34 +1957,60 @@ void MainWindow::updateConvergencePlotForTab(int index) {
     return;
   }
 
-  const bool overlay = (tab->overlayMethodChk && tab->overlayMethodChk->isChecked());
-  if (!overlay) {
+  const bool overlayByMethod  = (tab->overlayMethodChk && tab->overlayMethodChk->isChecked());
+  const bool overlayByProblem = (tab->overlayProblemChk && tab->overlayProblemChk->isChecked());
+
+  const bool useEvalX = (tab->xAxisEvalRadio && tab->xAxisEvalRadio->isEnabled() && tab->xAxisEvalRadio->isChecked());
+  plot->setXAxisTitle(useEvalX ? "Function Evaluations" : "Iterations");
+
+  auto selectX = [&](const OutputRunTab& r) -> const QVector<double>& {
+    if (useEvalX && r.convHasEvalX && !r.convEvalX.isEmpty()) return r.convEvalX;
+    return r.convIterX;
+  };
+
+  if (!overlayByMethod && !overlayByProblem) {
     QString label = tab->problemShort;
     if (label.isEmpty()) label = tab->title;
     if (tab->problemDim > 0) label += QString(" (D=%1)").arg(tab->problemDim);
-    plot->setSeries(tab->convX, tab->convY, label);
+    plot->setSeries(selectX(*tab), tab->convY, label);
     return;
   }
 
-  // Overlay: plot all problems that have convergence data for this method.
   QVector<ConvergencePlotWidget::Series> series;
-  for (const auto& r : outputRuns_) {
-    if (!r.convLoaded) continue;
-    if (r.methodShort.compare(tab->methodShort, Qt::CaseInsensitive) != 0) continue;
+  if (overlayByMethod) {
+    // Overlay: plot all problems that have convergence data for this method.
+    for (const auto& r : outputRuns_) {
+      if (!r.convLoaded) continue;
+      if (r.methodShort.compare(tab->methodShort, Qt::CaseInsensitive) != 0) continue;
 
-    ConvergencePlotWidget::Series s;
-    s.label = r.problemShort.isEmpty() ? r.title : r.problemShort;
-    if (r.problemDim > 0) s.label += QString(" (D=%1)").arg(r.problemDim);
-    s.x = r.convX;
-    s.y = r.convY;
-    series.push_back(std::move(s));
+      ConvergencePlotWidget::Series s;
+      s.label = r.problemShort.isEmpty() ? r.title : r.problemShort;
+      if (r.problemDim > 0) s.label += QString(" (D=%1)").arg(r.problemDim);
+      s.x = selectX(r);
+      s.y = r.convY;
+      series.push_back(std::move(s));
+    }
+  } else {
+    // Overlay: plot all methods that have convergence data for this problem.
+    for (const auto& r : outputRuns_) {
+      if (!r.convLoaded) continue;
+      if (r.problemShort.compare(tab->problemShort, Qt::CaseInsensitive) != 0) continue;
+      if (tab->problemDim > 0 && r.problemDim > 0 && r.problemDim != tab->problemDim) continue;
+
+      ConvergencePlotWidget::Series s;
+      s.label = r.methodShort.isEmpty() ? r.title : r.methodShort;
+      if (r.problemDim > 0) s.label += QString(" (D=%1)").arg(r.problemDim);
+      s.x = selectX(r);
+      s.y = r.convY;
+      series.push_back(std::move(s));
+    }
   }
 
   if (series.isEmpty()) {
     QString label = tab->problemShort;
     if (label.isEmpty()) label = tab->title;
     if (tab->problemDim > 0) label += QString(" (D=%1)").arg(tab->problemDim);
-    plot->setSeries(tab->convX, tab->convY, label);
+    plot->setSeries(selectX(*tab), tab->convY, label);
     return;
   }
 
@@ -1949,6 +2022,37 @@ void MainWindow::onOverlayMethodToggled(bool) {
   QObject* s = sender();
   for (int i = 0; i < int(outputRuns_.size()); ++i) {
     if (outputRuns_[i].overlayMethodChk == s) {
+      if (outputRuns_[i].overlayMethodChk->isChecked() && outputRuns_[i].overlayProblemChk) {
+        QSignalBlocker b(outputRuns_[i].overlayProblemChk);
+        outputRuns_[i].overlayProblemChk->setChecked(false);
+      }
+      updateConvergencePlotForTab(i);
+      break;
+    }
+  }
+}
+
+
+void MainWindow::onOverlayProblemToggled(bool checked) {
+  // Identify which output tab triggered this toggle, then refresh that tab's plot.
+  QObject* s = sender();
+  for (int i = 0; i < int(outputRuns_.size()); ++i) {
+    if (outputRuns_[i].overlayProblemChk == s) {
+      if (checked && outputRuns_[i].overlayMethodChk) {
+        QSignalBlocker b(outputRuns_[i].overlayMethodChk);
+        outputRuns_[i].overlayMethodChk->setChecked(false);
+      }
+      updateConvergencePlotForTab(i);
+      break;
+    }
+  }
+}
+
+void MainWindow::onConvergenceXAxisToggled(bool checked) {
+  if (!checked) return;
+  QObject* s = sender();
+  for (int i = 0; i < int(outputRuns_.size()); ++i) {
+    if (outputRuns_[i].xAxisIterRadio == s || outputRuns_[i].xAxisEvalRadio == s) {
       updateConvergencePlotForTab(i);
       break;
     }
@@ -2053,7 +2157,14 @@ bool MainWindow::exportConvergencePlotPng(int outputTabIndex, const QString& fil
   return img.save(filePath, "PNG");
 }
 
-static bool parseConvergenceCsvFile(const QString& path, QVector<double>& outX, QVector<double>& outY, QString& outInfo) {
+static bool parseConvergenceCsvFile(const QString& path,
+                                   QVector<double>& outIterX,
+                                   QVector<double>& outEvalX,
+                                   QVector<double>& outY,
+                                   QString& outInfo,
+                                   bool* outHasEvalX) {
+  if (outHasEvalX) *outHasEvalX = false;
+
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
     outInfo = QString("Could not open: %1").arg(path);
@@ -2061,11 +2172,11 @@ static bool parseConvergenceCsvFile(const QString& path, QVector<double>& outX, 
   }
 
   QTextStream ts(&f);
-	#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-	  ts.setEncoding(QStringConverter::Utf8);
-	#else
-	  ts.setCodec("UTF-8");
-	#endif
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  ts.setEncoding(QStringConverter::Utf8);
+#else
+  ts.setCodec("UTF-8");
+#endif
 
   auto detectDelim = [](const QString& line) -> QChar {
     const int cComma = line.count(',');
@@ -2095,7 +2206,8 @@ static bool parseConvergenceCsvFile(const QString& path, QVector<double>& outX, 
   }
 
   const QChar delim = detectDelim(firstNonEmpty);
-  QStringList fields = splitLine(firstNonEmpty, delim);
+  const QStringList fields = splitLine(firstNonEmpty, delim);
+
   auto looksNumeric = [](const QString& s) {
     bool ok = false;
     s.trimmed().toDouble(&ok);
@@ -2109,13 +2221,10 @@ static bool parseConvergenceCsvFile(const QString& path, QVector<double>& outX, 
     if (!looksNumeric(t)) { hasHeader = true; break; }
   }
 
-  int xCol = 0;
+  int iterCol = -1;
+  int evalCol = -1;
   int yCol = 1;
   QStringList header;
-  if (hasHeader) {
-    header = fields;
-    // Read next line as first data
-  }
 
   auto findCol = [&](const QStringList& h, const QStringList& needles) -> int {
     for (int i = 0; i < h.size(); ++i) {
@@ -2127,30 +2236,37 @@ static bool parseConvergenceCsvFile(const QString& path, QVector<double>& outX, 
     return -1;
   };
 
-  if (hasHeader) {
-    const int iterCol = findCol(header, {"iter", "iteration", "gen", "step"});
-    const int evalCol = findCol(header, {"eval", "fe", "nfe", "calls"});
-    const int bestCol = findCol(header, {"best", "fbest", "bestf", "best_f", "gbest"});
-    if (iterCol >= 0) xCol = iterCol;
-    else if (evalCol >= 0) xCol = evalCol;
-    else xCol = 0;
+  bool hasEval = false;
 
-    if (bestCol >= 0) yCol = bestCol;
-    else {
-      // fallback: first numeric column that is not x
+  if (hasHeader) {
+    header = fields;
+    iterCol = findCol(header, {"iter", "iteration", "gen", "step"});
+    evalCol = findCol(header, {"eval", "fe", "nfe", "calls"});
+    const int bestCol = findCol(header, {"best", "fbest", "bestf", "best_f", "gbest"});
+
+    hasEval = (evalCol >= 0);
+    // Choose Y column.
+    if (bestCol >= 0) {
+      yCol = bestCol;
+    } else {
+      // Fallback: first column that is not iter/eval.
       yCol = -1;
       for (int i = 0; i < header.size(); ++i) {
-        if (i == xCol) continue;
+        if (i == iterCol || i == evalCol) continue;
         yCol = i;
         break;
       }
-	      if (yCol < 0) yCol = std::min(1, int(header.size()) - 1);
+      if (yCol < 0) yCol = std::min(1, int(header.size()) - 1);
     }
   } else {
-    // No header: assume x,y in first two columns.
-    xCol = 0;
-	    yCol = std::min(1, int(fields.size()) - 1);
+    // No header: assume x,y in first two columns. Treat x as iterations.
+    iterCol = 0;
+    evalCol = -1;
+    hasEval = false;
+    yCol = std::min(1, int(fields.size()) - 1);
   }
+
+  if (outHasEvalX) *outHasEvalX = hasEval;
 
   // Parse helper
   auto parseDataLine = [&](const QString& ln) {
@@ -2158,12 +2274,31 @@ static bool parseConvergenceCsvFile(const QString& path, QVector<double>& outX, 
     if (t.isEmpty()) return;
     if (t.startsWith('#') || t.startsWith(';')) return;
     const QStringList cols = splitLine(ln, delim);
-    if (cols.size() <= std::max(xCol, yCol)) return;
-    bool okX=false, okY=false;
-    const double x = cols[xCol].trimmed().toDouble(&okX);
+    if (cols.size() <= yCol) return;
+
+    bool okY = false;
     const double y = cols[yCol].trimmed().toDouble(&okY);
-    if (!okX || !okY) return;
-    outX.push_back(x);
+    if (!okY) return;
+
+    double iterX = double(outY.size() + 1);
+    double evalX = 0.0;
+
+    if (iterCol >= 0) {
+      if (cols.size() <= iterCol) return;
+      bool okI = false;
+      iterX = cols[iterCol].trimmed().toDouble(&okI);
+      if (!okI) return;
+    }
+
+    if (hasEval) {
+      if (cols.size() <= evalCol) return;
+      bool okE = false;
+      evalX = cols[evalCol].trimmed().toDouble(&okE);
+      if (!okE) return;
+    }
+
+    outIterX.push_back(iterX);
+    if (hasEval) outEvalX.push_back(evalX);
     outY.push_back(y);
   };
 
@@ -2178,9 +2313,10 @@ static bool parseConvergenceCsvFile(const QString& path, QVector<double>& outX, 
     if (++lineCount > 2000000) break; // hard safety cap
   }
 
-  const int n = std::min(outX.size(), outY.size());
-  if (n < 2) {
-    outX.clear();
+  const int n = outY.size();
+  if (n < 2 || outIterX.size() < 2) {
+    outIterX.clear();
+    outEvalX.clear();
     outY.clear();
     outInfo = QString("No usable convergence data in: %1").arg(QFileInfo(path).fileName());
     return false;
@@ -2189,20 +2325,29 @@ static bool parseConvergenceCsvFile(const QString& path, QVector<double>& outX, 
   // Downsample for rendering if extremely large.
   const int maxPts = 6000;
   if (n > maxPts) {
-    QVector<double> dx;
+    QVector<double> di;
+    QVector<double> de;
     QVector<double> dy;
-    dx.reserve(maxPts);
+    di.reserve(maxPts);
+    if (hasEval) de.reserve(maxPts);
     dy.reserve(maxPts);
     const int stride = int(std::ceil(double(n) / maxPts));
     for (int i = 0; i < n; i += stride) {
-      dx.push_back(outX[i]);
+      di.push_back(outIterX[i]);
+      if (hasEval) de.push_back(outEvalX[i]);
       dy.push_back(outY[i]);
     }
-    outX = std::move(dx);
+    outIterX = std::move(di);
+    if (hasEval) outEvalX = std::move(de);
+    else outEvalX.clear();
     outY = std::move(dy);
   }
 
-  outInfo = QString("Loaded %1 points from %2").arg(outX.size()).arg(QFileInfo(path).fileName());
+  const QString xInfo = hasEval ? "Iterations + Function Evaluations" : "Iterations";
+  outInfo = QString("Loaded %1 points from %2 (x: %3)")
+                .arg(outY.size())
+                .arg(QFileInfo(path).fileName())
+                .arg(xInfo);
   return true;
 }
 
