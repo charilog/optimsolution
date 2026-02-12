@@ -152,7 +152,7 @@ Use the following **short names** in the command line:
 
 > **Windows installer available (fastest path):** Download and run **Optimsolution.msi** from:
 >
-> **[Optimsolution.msi (Windows Installer)](https://www.dit.uoi.gr/files/Optimsolution.zip)**
+> **[Optimsolution.msi (Windows Installer)](https://www.dit.uoi.gr/files/optimsolution.zip)**
 
 
 ### Prerequisites
