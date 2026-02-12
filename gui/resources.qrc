@@ -1,6 +1,0 @@
-<RCC>
-  <qresource prefix="/icons">
-    <file alias="optimsolution.png">icons/optimsolution.png</file>
-    <file alias="optimsolution.ico">icons/optimsolution.ico</file>
-  </qresource>
-</RCC>
