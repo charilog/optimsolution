@@ -69,20 +69,20 @@ The identifiers below are the **exact short names** currently built from the act
 | Short name | Full name |
 |---|---|
 | `arq` | ARQ: Adaptive RTR with Quarantine |
-| `arq2` |  |
+| `arq2` | ARQ2: ARQ/IDE roulette with Quarantine + ARQ-only micro-restart + jSO-style K |
 | `awjso` | Adaptive-Weight jSO |
-| `bjso` |  |
-| `bwjso` |  |
+| `bjso` | Band-guided jSO |
+| `bwjso` | Best-Worst corrected jSO |
 | `de` | Differential Evolution |
 | `ea4eig` | Evolutionary Algorithms with Eigen crossover |
-| `jde` | Self-adaptive Differential Evolution (jDE) |
+| `jde` | Self-adaptive Differential Evolution |
 | `jso` | Hybrid Differential Evolution JSO |
 | `mjso` | Modified jSO |
 | `mlshaderl` | Multi-operator L-SHADE with Reinforcement Learning |
 | `nlshadelbc` | NL-SHADE-LBC |
 | `pde` | Parallel Differential Evolution |
 | `sade` | Self-adaptive Differential Evolution (SaDE) |
-| `sfcde` |  |
+| `sfcde` | Success-Failure Competitive Differential Evolution |
 | `tridentde` | TRIDENT Differential Evolution |
 | `ude` | Unified Differential Evolution |
 | `ude3` | Enhanced Unified Differential Evolution Algorithm 3 |
