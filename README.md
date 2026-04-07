@@ -176,9 +176,9 @@ The identifiers below are the **exact short names** currently built from the act
 
 ## 3) Windows (Console + GUI)
 
-> **Windows installer available:** Download and run **Optimsolution.msi** from:
+> **Windows installer available:** Download and run **Optimsolution.exe** from:
 >
-> **[Optimsolution.msi (Windows Installer)](https://www.dit.uoi.gr/files/optimsolution.zip)**
+> **[Optimsolution.exe (Windows Installer)](https://www.dit.uoi.gr/files/optimsolution.zip)**
 
 ### Prerequisites
 - Visual Studio 2022 (Community or Build Tools)
