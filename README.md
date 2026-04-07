@@ -2,177 +2,140 @@
   <img src="./docs/optimsolution.png" alt="Optimsolution logo" width="720">
 </p>
 
+Optimsolution is a C++ optimization framework for repeatable, high-throughput experimentation with population-based metaheuristics and numerical optimizers on both benchmark and application-driven objective functions. It provides a consistent CLI and a Qt-based GUI, supports explicit computational budgets (for example maximum function evaluations and/or iterations), and produces standardized end-of-run summaries for systematic comparisons across methods, problems, and parameter settings.
 
+The current build described in this README is aligned with the active `CMakeLists.txt` and currently exposes **62 methods** and **90 problems** in the CLI.
 
-Optimsolution is a C++ optimization framework designed for repeatable, high-throughput experimentation with population-based metaheuristics and numerical optimizers on both benchmark and application-driven objective functions. It provides a uniform command-line interface to execute a selected method on a selected problem under explicit computational budgets (e.g., maximum function evaluations and/or iterations), using consistent initialization and stopping rules. During execution, it logs progress and produces standardized end-of-run summaries (e.g., best/mean/dispersion, success metrics, and timing), enabling systematic empirical studies across methods, problems, and parameterizations. In addition, Optimsolution supports **parameter sensitivity analysis** for each optimizer by systematically varying method parameters (e.g., population size and control parameters such as F and CR) and comparing performance distributions across multiple independent runs under identical stopping rules, this workflow is configured via the `[sensitivity]` section in `optimsolution.cfg`.
-
-> For details, see the PDF English manual: [optimsolution_manual_EN.pdf](./docs/optimsolutionManual_EN.pdf)
+> English manual: [optimsolution_manual_EN.pdf](./docs/optimsolutionManual_EN.pdf)
 >
-> For details, see the PDF Greek manual: [optimsolution_manual_GR.pdf](./docs/optimsolutionManual_GR.pdf)
----
-
-## 1) Available methods and problems (CLI)
-
-Use the following **short names** in the command line:
-
-### Methods
-| Short name | Full name |
-|---|---|
-| `aarq` | Aggressive Archive-based Quarantine Differential Evolution (AARQ) |
-| `abc` | Artificial Bee Colony (ABC) |
-| `aco` | Ant Colony Optimization (ACO) |
-| `acor` | Ant Colony Optimization for Continuous Domains (ACOR) |
-| `arq` | ARQ: Adaptive RTR with Quarantine |
-| `arqdp` | ARQ Directional Prediction + Far-Horizon Lookahead + Best-First Attack (ARQDP-v10) |
-| `arqeig` | ARQ with Eigen-like coordinate learning (ARQEig) |
-| `arqeigrl` | Dual-zone DE with local RL (ARQEigRL) |
-| `bfgs` | Broyden-Fletcher-Goldfarb-Shanno (local method) |
-| `bho` | BioHealing Optimization (BHO) |
-| `clpso` | Comprehensive Learning Particle Swarm Optimization (CLPSO) |
-| `cmaes` | Covariance Matrix Adaptation Evolution Strategy (CMA-ES) |
-| `de` | Differential Evolution (DE/rand/1/bin) |
-| `ea4eig` | Evolutionary Algorithms with Eigen crossover (EA4eig) |
-| `egco` | Eel and Grouper Optimizer(EGCO) |
-| `fuse` | Fusion Search Ensemble (FUSE) |
-| `ga` | Genetic Algorithm (GA) |
-| `gao` | Giant Armadillo Optimizer (GAO) |
-| `garq` | Golden ARQ with Reinforcement Learning (GARQ) |
-| `gd` | radient Descent (local method) |
-| `gde` | Golden Differential Evolution (pbest/1+archive) |
-| `gderl` | Golden Differential Evolution with Reinforcement Learning (gDE-rl) |
-| `gwo` | Grey Wolf Optimizer (GWO) |
-| `hde` | Hybrid Differential Evolution (HDE) |
-| `hjso` | HJSO: EA4eig hybrid shell with ARQ as default core |
-| `jde` | Self-adaptive Differential Evolution (jDE) |
-| `jso` | Hybrid Differential Evolution JSO |
-| `lbfgs` | Limited-memory Broyden-Fletcher-Goldfarb-Shanno (local method) |
-| `mewoa` | Modified Enhanced Whale Optimization Algorithm (MEWOA) |
-| `mlshaderl` | Multi-operator L-SHADE with Reinforcement Learning (mLSHADE-RL) |
-| `nm` | Nelder-Mead Simplex (local method) |
-| `pde` | Parallel Differential Evolution (PDE) |
-| `pga` | Parallel Genetic Algorithm (PGA) |
-| `polyde` | Polyphase Expert Multi-Strategy DE (PolyphaseDE) |
-| `ppso` | Parallel Particle Swarm Optimization (PPSO) |
-| `psao` | Parallel Smell Agent Optimization (PSAO) |
-| `psioa` | Parallel Sporulation-Inspired Optimization Algorithm (PSIOA) |
-| `pso` | Particle Swarm Optimization (PSO) |
-| `rarq` | Roulette Adaptive Robust Quarantine (RARQ) |
-| `sa` | Simulated Annealing (SA) |
-| `sade` | Self-adaptive Differential Evolution (SaDE) |
-| `sao` | Smell Agent Optimization (SAO) |
-| `sioa` | Sporulation-Inspired Optimization Algorithm (SIOA) |
-| `tridentde` | TRIDENT Differential Evolution (TRIDENT-DE) |
-| `ude3` | Enhanced Unified Differential Evolution Algorithm 3 (UDE3) |
-| `woa` | Whale Optimization Algorithm (WOA) |
-
-### Problems
-| Short name | Full name |
-|---|---|
-| `ackley` | Ackley benchmark function |
-| `antennaarray` | 6-element circular antenna array (sidelobe level minimization) |
-| `antennaula` | Uniform Linear Array (half-wavelength spacing, amplitude taper) |
-| `attractivesector` | Attractive Sector benchmark function |
-| `bifunctionalcatalyst` | Bifunctional catalyst dynamic optimization problem |
-| `bohachevsky1` | Bohachevsky function 1 |
-| `bohachevsky2` | Bohachevsky function 2 |
-| `bohachevsky3` | Bohachevsky function 3 |
-| `branin` | Branin (Branin-Hoo) function |
-| `bucherastrigin` | Buche-Rastrigin function (BBOB-style variant) |
-| `camel` | Six-Hump Camel function |
-| `cassini` | Cassini interplanetary transfer timing problem |
-| `cigar` | Cigar function |
-| `cosinemixture` | Cosine Mixture function |
-| `ded1` | Dynamic Economic Dispatch - Case 1 (quadratic cost) |
-| `ded2` | Dynamic Economic Dispatch - Case 2 (9-unit system) |
-| `differentpowers` | Different Powers function |
-| `diracproblem` | Dirac-like Gaussian spike function |
-| `easom` | Easom function |
-| `eld1` | Economic Load Dispatch - 1 (single period) |
-| `eld2` | Economic Load Dispatch - 2 (13-unit single-period) |
-| `eld3` | Economic Load Dispatch - 3 (CEC2011 15-unit instance) |
-| `eld4` | Economic Load Dispatch - 4 (40-unit CEC benchmark) |
-| `eld5` | Economic Load Dispatch - 5 (CEC2011 140-unit case) |
-| `ellipsoidal` | Ellipsoidal function |
-| `equalmaxima` | Equal Maxima function |
-| `expotential` | Expotential function  |
-| `fmsynth` | FM Synth Parameter Estimation |
-| `gallagher101` | Gallagher's Gaussian 101-peaks function |
-| `gallagher21` | Gallagher's Gaussian 21-me Peaks |
-| `gascycle` | Idealized gas cycle efficiency (Brayton-type) |
-| `gkls2100` | GKLS 2D, 100 minima (D-type) |
-| `gkls250` | GKLS 2D, 50 minima (D-type) |
-| `gkls350` | GKLS 3D, 50 minima (D-type) |
-| `goldstein` | Goldstein–Price function |
-| `griewank` | Griewank function |
-| `griewankrosenbrock` | Griewank–Rosenbrock Composition Function |
-| `hansen` | Hansen function |
-| `hartmann3` | Hartmann 3D function |
-| `hartmann6` | Hartmann 6D function |
-| `heatexchanger` | Heat Exchanger Design Optimization Problem |
-| `himmelblau` | Himmelblau (maximize-style variant) |
-| `hydrothermal` | Hydrothermal scheduling (smooth penalty model) |
-| `ik6dof` | 6-DOF Inverse Kinematics (DH serial chain) |
-| `katsuura` | Katsuura function |
-| `levy` | Levy N.13 function |
-| `lunacekbirastrigin` | Lunacek bi-Rastrigin function |
-| `messenger` | MESSENGER MGA-1DSM surrogate ΔV |
-| `michalewicz` | Michalewicz function |
-| `ofdmpower` | OFDM Power Allocation (sum–rate with soft power constraint) |
-| `polyphase` | Polyphase sequence PSL minimization (aperiodic autocorrelation) |
-| `portfoliomv` | Markowitz Mean–Variance Portfolio (long-only, soft sum-to-one) |
-| `potential` | Lennard-Jones Pairwise Potential |
-| `rastrigin` | Rastrigin benchmark function |
-| `rastrigin2` | 2D Rastrigin function (shifted, f* = -2) |
-| `rosenbrock` | Rosenbrock benchmark function |
-| `rotatedrosenbrock` | Rotated Rosenbrock function |
-| `schaffer` | Schaffer N.2 (F6) function |
-| `schwefel` | Schwefel 2.26 function |
-| `shekel10` | Shekel function (m = 10, D = 4) |
-| `shekel5` | Shekel function (m = 5, D = 4) |
-| `shekel7` | Shekel function (m = 7, D = 4) |
-| `shubert` | Shubert function (2D, highly multimodal) |
-| `sinusoidal` | Multidimensional sinusoidal test function |
-| `sphere` | Sphere benchmark function |
-| `stepellipsoidal` | Step-Ellipsoidal function |
-| `tandem` | Tandem MGA-1DSM surrogate ΔV |
-| `tersoffb` | TersoffB Si(B) Cluster Potential (CEC2011) |
-| `tersoffc` | TersoffC Si(C) Cluster Potential (CEC2011) |
-| `test2n` | Separable quartic polynomial (Test2n) |
-| `test30n` | Oscillatory non-separable benchmark (Test30n) |
-| `tnep` | Transmission Network Expansion Planning (DC-OPF surrogate) |
-| `transmissionpricing` | Transmission pricing via PTDF-based DC power flow |
-| `vibratingplatform` | Base-excited SDOF isolation platform design |
-| `weierstrass` | Weierstrass function |
-| `wirelesscoverage` | Wireless coverage planning (antenna placement & power) |
-| `zakharov` | Zakharov function |
+> Greek manual: [optimsolution_manual_GR.pdf](./docs/optimsolutionManual_GR.pdf)
 
 ---
 
-## 2) Windows (Console + GUI)
+## 1) What changed from GUI v47 to v48
 
-> **Windows installer available (fastest path):** Download and run **Optimsolution.msi** from:
+Version 48 extends and cleans up the batch-analysis workflow introduced in earlier GUI versions.
+
+### Batch analysis is now more complete
+The **System** tab now provides a richer batch-analysis workspace. In addition to the main results table, the GUI includes separate views for:
+
+- **Results Table**
+- **Best Table**
+- **Mean Table**
+- **Best Ranking**
+- **Mean Ranking**
+- **Final Ranking**
+- **Pairwise Wilcoxon**
+- **Friedman Ranking**
+
+This makes it easier to inspect raw batch values, per-problem rankings, and overall final rankings without leaving the GUI.
+
+### External experiment loading is more robust
+`Load experiment CSV...` now supports two practical workflows:
+
+1. loading a single convergence CSV as an output tab, and
+2. reconstructing a full batch from a folder that contains batch experiment CSV files.
+
+When a batch is reconstructed, the GUI now restores the detected methods, problems, dimensions, and the relevant batch-analysis state more reliably.
+
+### Better synchronization for batch selections and dimensions
+The Selection area and the batch summary views are now better synchronized. When batch methods, problems, or variable dimensions change, the corresponding batch table content is refreshed more consistently, and stale cached cells are invalidated when dimensions no longer match.
+
+### Improved convergence plotting
+The convergence plot logic in v48 improves two practical issues:
+
+- the Y-axis can anchor to a known best minimum when that information is available, which helps with problems whose optimum is negative or otherwise far from the currently displayed range,
+- the extra compact black info panel is no longer drawn on top of overlay convergence plots; the standard legend remains the primary plot annotation.
+
+### Safer CSV cleanup
+`Delete CSV files` is now restricted to the GUI runtime folder tree named **`optimsolution_gui_run`**. This makes the cleanup action more predictable and avoids scanning unrelated directories.
+
+---
+
+## 2) Available methods and problems (CLI)
+
+CLI syntax:
+
+```bash
+optimsolution <method> <problem>
+```
+
+The identifiers below are the **exact short names** currently built from the active `CMakeLists.txt`. If an older README, screenshot, or note mentions a short name that is not listed here, it should be treated as outdated for the current build.
+
+### Methods (62)
+
+#### Differential evolution and closely related variants
+
+`arq`, `arq2`, `awjso`, `bjso`, `bwjso`, `de`, `ea4eig`, `jde`, `jso`, `mjso`, `mlshaderl`
+`nlshadelbc`, `pde`, `sade`, `sfcde`, `tridentde`, `ude`, `ude3`, `ujso`
+
+#### Population-based, swarm, evolutionary, and hybrid optimizers
+
+`abc`, `acor`, `alo`, `ba`, `bho`, `clpso`, `cmaes`, `cs`, `egco`, `eo`, `fa`, `ga`, `gahs`
+`gao`, `gsa`, `gwo`, `hba`, `hho`, `hs`, `jaya`, `kh`, `mewoa`, `mfo`, `mpa`, `mvo`, `pga`
+`ppso`, `psao`, `psioa`, `pso`, `sa`, `sao`, `sca`, `sioa`, `sma`, `so`, `tlbo`, `wca`, `woa`
+
+#### Local search methods
+
+`bfgs`, `gd`, `lbfgs`, `nm`
+
+### Problems (90)
+
+#### Classical and synthetic benchmarks
+
+`ackley`, `attractivesector`, `bohachevsky1`, `bohachevsky2`, `bohachevsky3`, `branin`
+`bucherastrigin`, `camel`, `cigar`, `cosinemixture`, `differentpowers`, `diracproblem`, `easom`
+`ellipsoidal`, `equalmaxima`, `expotential`, `gallagher101`, `gallagher21`, `goldstein`
+`griewank`, `griewankrosenbrock`, `hansen`, `hartmann3`, `hartmann6`, `katsuura`, `levy`
+`lunacekbirastrigin`, `michalewicz`, `potential`, `rastrigin`, `rastrigin2`, `rosenbrock`
+`rotatedrosenbrock`, `schaffer`, `schwefel`, `shekel5`, `shekel7`, `shekel10`, `shubert`
+`sinusoidal`, `sphere`, `stepellipsoidal`, `test2n`, `test30n`, `weierstrass`, `zakharov`
+
+#### Real-world and application-driven problems
+
+`antennaarray`, `antennaula`, `bifunctionalcatalyst`, `cassini`, `ded1`, `ded2`, `eld1`, `eld2`
+`eld3`, `eld4`, `eld5`, `fmsynth`, `gascycle`, `heatexchanger`, `himmelblau`, `hydrothermal`
+`ik6dof`, `messenger`, `ofdmpower`, `polyphase`, `portfoliomv`, `tandem`, `tersoffb`, `tersoffc`
+`tnep`, `transmissionpricing`, `vibratingplatform`, `wirelesscoverage`
+
+#### GKLS test classes
+
+`gkls`, `gkls250`, `gkls350`, `gkls2100`
+
+#### CEC 2022 representative functions
+
+`cec2022_zakharov`, `cec2022_rosenbrock`, `cec2022_schafferf7`
+`cec2022_noncontinuous_rastrigin`, `cec2022_levy`, `cec2022_hybrid2`, `cec2022_hybrid6`
+`cec2022_hybrid10`, `cec2022_composition1`, `cec2022_composition2`, `cec2022_composition6`
+`cec2022_composition7`
+
+
+---
+
+## 3) Windows (Console + GUI)
+
+> **Windows installer available:** Download and run **Optimsolution.msi** from:
 >
 > **[Optimsolution.msi (Windows Installer)](https://www.dit.uoi.gr/files/optimsolution.zip)**
-
 
 ### Prerequisites
 - Visual Studio 2022 (Community or Build Tools)
   - Workload: **Desktop development with C++**
   - Components: **MSVC v143**, **Windows 10/11 SDK**
-- CMake: ensure it is available in your **PATH**
-- **Qt 6.x (MSVC 2022 x64)** (required only for the GUI target), e.g. `C:\Qt\6.10.1\msvc2022_64`
+- CMake available in **PATH**
+- **Qt 6.x (MSVC 2022 x64)** for the GUI target, for example `C:\Qt\6.10.1\msvc2022_64`
 
-> Recommended shell: **x64 Native Tools Command Prompt for VS 2022** or **Developer PowerShell for VS 2022**.
+Recommended shell: **x64 Native Tools Command Prompt for VS 2022** or **Developer PowerShell for VS 2022**.
 
 ### Build and run (GUI + CLI) — Debug
 
-Delete the existing `build` directory (clean build).
+Delete the existing `build` directory.
 
 ```powershell
 Remove-Item -Recurse -Force .\build -ErrorAction SilentlyContinue
 ```
 
-Configure the project with the GUI target enabled (Qt path must match your installation).
+Configure the project with the GUI target enabled.
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
@@ -180,19 +143,19 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
   "-DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\msvc2022_64"
 ```
 
-Build the GUI executable (Debug).
+Build the GUI executable.
 
 ```powershell
 cmake --build build --config Debug --target optimsolution_gui
 ```
 
-Build the CLI executable (Debug).
+Build the CLI executable.
 
 ```powershell
 cmake --build build --config Debug --target optimsolution
 ```
 
-Deploy the required Qt runtime next to the GUI executable (run this after building the GUI).
+Deploy the required Qt runtime next to the GUI executable.
 
 ```powershell
 & "C:\Qt\6.10.1\msvc2022_64\bin\windeployqt.exe" `
@@ -212,85 +175,46 @@ Run the CLI (example).
 .\build\Debug\optimsolution.exe arq tersoffc
 ```
 
+---
 
-## 3) Linux (Console + GUI)
+## 4) Linux (Console + GUI)
 
 ### Prerequisites
-- C++ toolchain: GCC or Clang
+- GCC or Clang
 - CMake
-- Build backend: Ninja (recommended)
-- **Qt 6.x development packages** (required only for the GUI target)
+- Ninja (recommended)
+- **Qt 6.x development packages** for the GUI target
 
-> Recommended shell: a standard terminal in the repository root.
+Recommended shell: a standard terminal in the repository root.
 
 ### Build and run (GUI + CLI) — Debug
 
-Update package lists.
-
 ```bash
 sudo apt update
-```
-
-Upgrade installed packages.
-
-```bash
 sudo apt upgrade
-```
-
-Install Qt6 development packages (required for the GUI target).
-
-```bash
 sudo apt install qt6-base-dev qt6-base-dev-tools qt6-tools-dev qt6-tools-dev-tools
-```
-
-Delete the existing `build` directory (clean build).
-
-```bash
 rm -rf build
-```
-
-Configure (GUI enabled, Debug).
-
-```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PROJECT_INCLUDE=cmake/optimsolution_gui.cmake
-```
-
-Build the GUI.
-
-```bash
 cmake --build build --target optimsolution_gui
-```
-
-Build the CLI.
-
-```bash
 cmake --build build --target optimsolution
-```
-
-Run the GUI.
-
-```bash
 ./build/optimsolution_gui
-```
-
-Run the CLI (example).
-
-```bash
 ./build/optimsolution arq tersoffc
 ```
 
+---
 
-## 4) Settings (optimsolution.cfg)
+## 5) Settings (`optimsolution.cfg`)
 
-### A) Console (CLI)
+### Console (CLI)
 
 The console solver reads experiment defaults from `optimsolution.cfg`.
 
-- The **`[global]`** section defines run-wide defaults (e.g., `population`, `max_evals`, `runs`, seeding).
-- A **method section** (e.g., `[jso]`, `[aarq]`, etc.) can **override** global keys on a per-method basis.
-- Additional sections (e.g., `[init]`, `[stop]`, `[sensitivity]`) configure initialization, termination, and sensitivity sweeps.
+- **`[global]`** defines run-wide defaults such as population, evaluation budget, number of runs, and seeding.
+- A **method section** such as `[jso]`, `[arq]`, or `[ga]` can override global keys for a specific optimizer.
+- Additional sections such as **`[init]`**, **`[stop]`**, and **`[sensitivity]`** control initialization, stopping rules, and parameter sensitivity studies.
 
 ### Key defaults
+
 ```ini
 [global]
 population = 200
@@ -303,20 +227,21 @@ local_rate   = 0.00
 local_method = lbfgs
 end_local_refine = 0
 end_local_method = lbfgs   ; or bfgs / nm / gd
-summary_enable           = 1
+summary_enable = 1
 
 [stop]
-rule    = maxevals         ; bss|wss|tss|boss|srs|irs|doublebox|maxevals|all|none
-eps     = 1e-10
+rule = maxevals            ; bss|wss|tss|boss|srs|irs|doublebox|maxevals|all|none
+eps  = 1e-10
 
 [init]
 type = uniform             ; uniform | normal | cauchy | laplace | lognormal | exponential | beta | levy | lhs | halton | oppositional
 ```
 
-### ARQ method overrides (used in the attached run)
+### Example method overrides
+
 ```ini
 [arq]
-population 	 = 100
+population   = 100
 pbest_frac   = 0.12
 F            = 0.1
 CR           = 0.9
@@ -327,41 +252,42 @@ local_method = lbfgs
 ```
 
 ### How these settings map to the run summary
-- **Population**
-  - Default: `global.population = 200`
-  - **ARQ override:** `arq.population = 100` → shown as `Population: 100`
-- **Runs**
-  - `global.runs = 30` → shown as `Runs: 30`
-- **Stopping rule / evaluation budget**
-  - `stop.rule = maxevals`
-  - `global.max_evals = 150000` → shown as `Max evals/run: 150000` and the run stops at `evals 150000`
-- **Maximum iterations**
-  - `global.max_iters = 500000` → shown as `Max iters/run: 500000`
-- **Initialization**
-  - `init.type = uniform` → shown as `Init distribution: uniform`
-- **Local search**
-  - `local_rate = 0.00` (global and ARQ) → shown as `Local search: none`
+- **Population**: `global.population = 200`, but a method section can override it.
+- **Runs**: `global.runs = 30`.
+- **Evaluation budget**: `stop.rule = maxevals` together with `global.max_evals`.
+- **Maximum iterations**: `global.max_iters = 500000`.
+- **Initialization**: `init.type = uniform`.
+- **Local search**: controlled by `local_rate`, `local_method`, and `end_local_refine`.
+
+The GUI uses the same configuration file as the CLI, but it can apply runtime-only overrides when launching runs. A practical example is the **Force CSV convergence for plotting** option, which helps the GUI populate convergence plots and batch-analysis tables from CSV traces.
 
 ---
 
-## 5) Example run console output (end of execution)
+## 6) GUI notes
 
-The following screenshot shows the **last iterations of Run 30** and the **final run summary** for:
+The GUI and CLI share the same optimization core. In practice, the GUI is useful when you want to:
+
+- inspect convergence plots,
+- load a previous experiment CSV,
+- reconstruct a batch from saved CSV files,
+- export tables and plots,
+- run sensitivity studies from the same configuration base.
+
+Current GUI overview:
+
+![optimsolution GUI](./docs/optimsolution_gui.png)
+
+For details, see the English manual: [optimsolution_manual_EN.pdf](./docs/optimsolutionManual_EN.pdf)
+
+---
+
+## 7) Example run console output (end of execution)
+
+The following screenshot shows the last iterations of **Run 30** and the final summary for:
+
 - **Method:** `arq`
 - **Problem:** `tersoffc (Dim=24)`
 - **Runs:** 30
 - **Budget:** 150000 evals/run
 
 ![Console output: ARQ on tersoffc (Dim=24)](./docs/arq_tersoffc.png)
-
-### B) GUI
-
-The GUI uses the same `optimsolution.cfg` as the CLI, but it can apply **run-time overrides** by generating a temporary config snapshot for each run.
-
-GUI overview: 
-
-![optimsolution GUI](./docs/optimsolution_gui.png)
-
-For details, see the PDF manual: [optimsolution_manual.pdf](./docs/optimsolutionManual_EN.pdf)
-
-
