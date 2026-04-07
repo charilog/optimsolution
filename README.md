@@ -59,29 +59,87 @@ CLI syntax:
 ```bash
 optimsolution <method> <problem>
 ```
-or
 
-```bash
-optimsolution <method> <problem> <dimension>
-```
 The identifiers below are the **exact short names** currently built from the active `CMakeLists.txt`. If an older README, screenshot, or note mentions a short name that is not listed here, it should be treated as outdated for the current build.
 
 ### Methods (62)
 
 #### Differential evolution and closely related variants
 
-`arq`, `arq2`, `awjso`, `bjso`, `bwjso`, `de`, `ea4eig`, `jde`, `jso`, `mjso`, `mlshaderl`
-`nlshadelbc`, `pde`, `sade`, `sfcde`, `tridentde`, `ude`, `ude3`, `ujso`
+| Short name | Full name |
+|---|---|
+| `arq` | ARQ: Adaptive RTR with Quarantine |
+| `arq2` |  |
+| `awjso` | Adaptive-Weight jSO |
+| `bjso` |  |
+| `bwjso` |  |
+| `de` | Differential Evolution |
+| `ea4eig` | Evolutionary Algorithms with Eigen crossover |
+| `jde` | Self-adaptive Differential Evolution (jDE) |
+| `jso` | Hybrid Differential Evolution JSO |
+| `mjso` | Modified jSO |
+| `mlshaderl` | Multi-operator L-SHADE with Reinforcement Learning |
+| `nlshadelbc` | NL-SHADE-LBC |
+| `pde` | Parallel Differential Evolution |
+| `sade` | Self-adaptive Differential Evolution (SaDE) |
+| `sfcde` |  |
+| `tridentde` | TRIDENT Differential Evolution |
+| `ude` | Unified Differential Evolution |
+| `ude3` | Enhanced Unified Differential Evolution Algorithm 3 |
+| `ujso` | Updated jSO |
 
 #### Population-based, swarm, evolutionary, and hybrid optimizers
 
-`abc`, `acor`, `alo`, `ba`, `bho`, `clpso`, `cmaes`, `cs`, `egco`, `eo`, `fa`, `ga`, `gahs`
-`gao`, `gsa`, `gwo`, `hba`, `hho`, `hs`, `jaya`, `kh`, `mewoa`, `mfo`, `mpa`, `mvo`, `pga`
-`ppso`, `psao`, `psioa`, `pso`, `sa`, `sao`, `sca`, `sioa`, `sma`, `so`, `tlbo`, `wca`, `woa`
+| Short name | Full name |
+|---|---|
+| `abc` | Artificial Bee Colony |
+| `acor` | Ant Colony Optimization for Continuous Domains |
+| `alo` | Ant Lion Optimizer |
+| `ba` | Bat Algorithm |
+| `bho` | BioHealing Optimization |
+| `clpso` | Comprehensive Learning Particle Swarm Optimization |
+| `cmaes` | Covariance Matrix Adaptation Evolution Strategy |
+| `cs` | Cuckoo Search |
+| `egco` | Eel and Grouper Optimizer |
+| `eo` | Equilibrium Optimizer |
+| `fa` | Firefly Algorithm |
+| `ga` | Genetic Algorithm |
+| `gahs` | Genetic Algorithm with Harmony Search |
+| `gao` | Giant Armadillo Optimizer |
+| `gsa` | Gravitational Search Algorithm |
+| `gwo` | Grey Wolf Optimizer |
+| `hba` | Honey Badger Algorithm |
+| `hho` | Harris Hawks Optimization |
+| `hs` | Harmony Search |
+| `jaya` | JAYA |
+| `kh` | Krill Herd |
+| `mewoa` | Modified Enhanced Whale Optimization Algorithm |
+| `mfo` | Moth-Flame Optimization |
+| `mpa` | Marine Predators Algorithm |
+| `mvo` | Multi-Verse Optimizer |
+| `pga` | Parallel Genetic Algorithm |
+| `ppso` | Parallel Particle Swarm Optimization |
+| `psao` | Parallel Smell Agent Optimization |
+| `psioa` | Parallel Sporulation-Inspired Optimization Algorithm |
+| `pso` | Particle Swarm Optimization |
+| `sa` | Simulated Annealing |
+| `sao` | Smell Agent Optimization |
+| `sca` | Sine Cosine Algorithm |
+| `sioa` | Sporulation-Inspired Optimization Algorithm |
+| `sma` | Slime Mould Algorithm |
+| `so` | Snake Optimizer |
+| `tlbo` | Teaching-Learning-Based Optimization |
+| `wca` | Water Cycle Algorithm |
+| `woa` | Whale Optimization Algorithm |
 
 #### Local search methods
 
-`bfgs`, `gd`, `lbfgs`, `nm`
+| Short name | Full name |
+|---|---|
+| `bfgs` | Broyden-Fletcher-Goldfarb-Shanno |
+| `gd` | Gradient Descent |
+| `lbfgs` | Limited-memory Broyden-Fletcher-Goldfarb-Shanno |
+| `nm` | Nelder-Mead Simplex |
 
 ### Problems (90)
 
@@ -118,9 +176,9 @@ The identifiers below are the **exact short names** currently built from the act
 
 ## 3) Windows (Console + GUI)
 
-> **Windows installer available:** Download and run **Optimsolution.exe** from:
+> **Windows installer available:** Download and run **Optimsolution.msi** from:
 >
-> **[Optimsolution.exe (Windows Installer)](https://www.dit.uoi.gr/files/optimsolution.zip)**
+> **[Optimsolution.msi (Windows Installer)](https://www.dit.uoi.gr/files/optimsolution.zip)**
 
 ### Prerequisites
 - Visual Studio 2022 (Community or Build Tools)
