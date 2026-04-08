@@ -2,7 +2,7 @@
   <img src="./docs/optimsolution.png" alt="Optimsolution logo" width="720">
 </p>
 
-Optimsolution is a C++ optimization framework for repeatable, high-throughput experimentation with population-based metaheuristics and numerical optimizers on both benchmark and application-driven objective functions. It provides a consistent CLI and a Qt-based GUI, supports explicit computational budgets (for example maximum function evaluations and/or iterations), and produces standardized end-of-run summaries for systematic comparisons across methods, problems, and parameter settings.
+Optimsolution (version 48) is a C++ optimization framework for repeatable, high-throughput experimentation with population-based metaheuristics and numerical optimizers on both benchmark and application-driven objective functions. It provides a consistent CLI and a Qt-based GUI, supports explicit computational budgets (for example maximum function evaluations and/or iterations), and produces standardized end-of-run summaries for systematic comparisons across methods, problems, and parameter settings.
 
 The current build described in this README is aligned with the active `CMakeLists.txt` and currently exposes **62 methods** and **90 problems** in the CLI.
 
