@@ -59,8 +59,11 @@ CLI syntax:
 ```bash
 optimsolution <method> <problem>
 ```
+or 
 
-The identifiers below are the **exact short names** currently built from the active `CMakeLists.txt`. If an older README, screenshot, or note mentions a short name that is not listed here, it should be treated as outdated for the current build.
+```bash
+optimsolution <method> <problem> <dimension>
+```
 
 ### Methods (62)
 
