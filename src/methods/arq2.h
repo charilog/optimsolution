@@ -97,6 +97,18 @@ private:
     // debug
     int debug_arq_{0};
 
+    // ─── safety constants ───────────────────────────────────────────────────
+    // Maximum reflection bounces in ensureBounds before falling back to clamp.
+    // Prevents infinite loops caused by very large overshoots.  (FIX #1)
+    static constexpr int kMaxBounce    = 10;
+
+    // Maximum Cauchy-retry attempts when sampling F for IDE parameters.
+    // In practice the loop terminates in 1-2 tries; the cap is a safety net.
+    static constexpr int kMaxCauchyTries = 20;
+
+    // Maximum rejection-sampling attempts in pickDistinct.  (FIX #6)
+    static constexpr int kMaxPickTries  = 100;
+
 private:
     inline double eval(const Vec& v){
         double f = prob_->evaluate(v);

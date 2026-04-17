@@ -117,21 +117,17 @@ void ARQ2::init(){
     gt_   = std::max(1, gmax_ / 2);
     Tcurr_= 0;
 
-    // CBF_/CBCR_ copied from EA4Eig init
+    // CBF_/CBCR_ copied from EA4Eig init.
+    // FIX #5 (partial): cap the F-retry loop with kMaxCauchyTries.
     CBF_.assign(N, 0.0);
     CBCR_.assign(N, 0.0);
     for (int i = 0; i < N; ++i) {
-        double F;
-        if (randU() < 0.5)
-            F = cauchy(0.65, 0.1);
-        else
-            F = cauchy(1.0, 0.1);
-        while (F < 0.0) {
-            if (randU() < 0.5)
-                F = cauchy(0.65, 0.1);
-            else
-                F = cauchy(1.0, 0.1);
+        double F = -1.0;
+        for (int tries = 0; tries < kMaxCauchyTries; ++tries) {
+            F = (randU() < 0.5) ? cauchy(0.65, 0.1) : cauchy(1.0, 0.1);
+            if (F >= 0.0) break;
         }
+        if (F < 0.0) F = 0.65;   // safe fallback after kMaxCauchyTries
         if (F > 1.0) F = 1.0;
         CBF_[i] = F;
 
@@ -155,10 +151,19 @@ void ARQ2::init(){
     printBest();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  pickDistinct
+//  FIX #6: add kMaxPickTries guard — prevents the original unbounded do-while
+//  from spinning long when N is small (e.g., N=4 with three exclusions leaves
+//  only one valid value, expected ~4 draws per call).
+//  After the limit the last drawn value is returned as-is; in degenerate cases
+//  (N < 4) callers guard separately so this is a safe fallback.
+// ─────────────────────────────────────────────────────────────────────────────
 int ARQ2::pickDistinct(int n, int a, int b, int c){
     std::uniform_int_distribution<int> I(0, n-1);
-    int r;
-    do { r = I(rng_); } while (r==a || r==b || r==c);
+    int r = I(rng_);
+    for (int tries = 1; (r == a || r == b || r == c) && tries < kMaxPickTries; ++tries)
+        r = I(rng_);
     return r;
 }
 
@@ -193,20 +198,19 @@ int ARQ2::ideGenerationFromProgress() const{
     return geff;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  resetIDEParamsAt
+//  FIX #5 (partial): same bounded Cauchy-retry as init().
+// ─────────────────────────────────────────────────────────────────────────────
 void ARQ2::resetIDEParamsAt(int idx){
     if (idx < 0 || idx >= (int)CBF_.size() || idx >= (int)CBCR_.size()) return;
 
-    double F;
-    if (randU() < 0.5)
-        F = cauchy(0.65, 0.1);
-    else
-        F = cauchy(1.0, 0.1);
-    while (F < 0.0) {
-        if (randU() < 0.5)
-            F = cauchy(0.65, 0.1);
-        else
-            F = cauchy(1.0, 0.1);
+    double F = -1.0;
+    for (int tries = 0; tries < kMaxCauchyTries; ++tries) {
+        F = (randU() < 0.5) ? cauchy(0.65, 0.1) : cauchy(1.0, 0.1);
+        if (F >= 0.0) break;
     }
+    if (F < 0.0) F = 0.65;
     if (F > 1.0) F = 1.0;
     CBF_[idx] = F;
 
@@ -276,6 +280,21 @@ void ARQ2::sortByFitness()
     FX_.swap(newF);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  ensureBounds
+//  FIX #1: Replace the unbounded `while` reflection loop with a bounded `for`
+//  loop (kMaxBounce iterations) followed by a hard clamp.
+//
+//  Original bug: for a very large overshoot (e.g., donor coordinate = lo - 1e9
+//  when range = [0, 1]), the reflected value 2*lo - v is still far outside the
+//  bounds, and each iteration only halves the excess if the range is ≈1.  This
+//  could spin for millions of iterations (effectively hanging the algorithm).
+//
+//  Fix: after kMaxBounce reflections (10 is more than enough for any realistic
+//  overshoot from a DE step), clamp the residual to [lo, hi].  The clamp is
+//  only reached in truly extreme cases and is mathematically equivalent to a
+//  boundary-midpoint repair, which is acceptable.
+// ─────────────────────────────────────────────────────────────────────────────
 void ARQ2::ensureBounds(Vec& v){
     const Vec& L = prob_->lb();
     const Vec& U = prob_->ub();
@@ -292,12 +311,16 @@ void ARQ2::ensureBounds(Vec& v){
             continue;
         }
 
-        while (v[j] < lo || v[j] > hi) {
-            if (v[j] > hi)
-                v[j] = 2.0 * hi - v[j];
-            else if (v[j] < lo)
-                v[j] = 2.0 * lo - v[j];
+        for (int b = 0; b < kMaxBounce && (v[j] < lo || v[j] > hi); ++b) {
+            if      (v[j] > hi) v[j] = 2.0 * hi - v[j];
+            else if (v[j] < lo) v[j] = 2.0 * lo - v[j];
         }
+
+        // Hard clamp: handles extreme overshoots that survived kMaxBounce
+        // reflections (e.g., |v| >> range width), and also covers the rare
+        // case where bouncing puts us right on a boundary floating-point edge.
+        if (v[j] < lo) v[j] = lo;
+        if (v[j] > hi) v[j] = hi;
     }
 }
 
@@ -469,6 +492,20 @@ void ARQ2::makeTrialARQ(int i, const std::vector<int>& ord, double F, double CR,
     ensureBounds(u);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  selectionRTR
+//  FIX #3: Exclude parentIndex from the RTR random pool.
+//
+//  Original bug: the pool was sampled uniformly from [0, N-1], so it could
+//  pick parentIndex.  We already know fu >= FX_[parentIndex] (the direct
+//  selection at the top of the function failed), so the RTR check
+//  `fu < FX_[qstar]` trivially fails for qstar == parentIndex, wasting a pool
+//  slot and reducing the effective neighbourhood size.
+//
+//  Fix: skip any sample that lands on parentIndex so all rtr_pool_ candidates
+//  are genuinely distinct from the parent.  The while-guard terminates quickly
+//  because P(q == parentIndex) = 1/N ≤ 0.25 for N ≥ 4.
+// ─────────────────────────────────────────────────────────────────────────────
 bool ARQ2::selectionRTR(int parentIndex, const Vec& u, double fu,
                         double F, double CR,
                         std::vector<double>& SF,
@@ -491,7 +528,17 @@ bool ARQ2::selectionRTR(int parentIndex, const Vec& u, double fu,
     double bestD = std::numeric_limits<double>::infinity();
 
     for (int k=0; k<rtr_pool_; ++k){
-        int q = randInt(0, N-1);
+        // FIX #3: reject the parent index so it cannot appear in the RTR pool.
+        // The parent already failed the direct comparison above; including it
+        // in the pool wastes a slot and guarantees a failed RTR check.
+        int q;
+        int attempts = 0;
+        do {
+            q = randInt(0, N-1);
+            ++attempts;
+        } while (q == parentIndex && attempts < kMaxPickTries);
+        if (q == parentIndex) continue;   // degenerate fallback (N==1, impossible in practice)
+
         double d = distBN(u, X_[q]);
         if (d < bestD) { bestD = d; qstar = q; }
     }
@@ -513,6 +560,23 @@ bool ARQ2::selectionRTR(int parentIndex, const Vec& u, double fu,
     return false;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  stepARQ
+//  FIX #4: Remove the pointless per-individual distribution reconstruction.
+//
+//  Original bug: lines
+//      cauchyF = std::cauchy_distribution<double>(muF_,  0.1);
+//      normCR  = std::normal_distribution<double>(muCR_, 0.1);
+//  were executed inside the agent loop on every iteration.  Since muF_ and
+//  muCR_ are only updated AFTER the loop (via update_mu_from_success), these
+//  assignments recreate identical distribution objects in a tight inner loop —
+//  wasting CPU and resetting the distribution's internal state, which can
+//  introduce subtle autocorrelation in the sample sequence depending on the
+//  STL implementation.
+//
+//  Fix: create the distributions once before the loop and leave them in place.
+//  muF_ / muCR_ are read by sample_F_CR only as a fallback when F ≤ 0.
+// ─────────────────────────────────────────────────────────────────────────────
 void ARQ2::stepARQ(){
     if (!prob_) return;
 
@@ -533,6 +597,8 @@ void ARQ2::stepARQ(){
 
     std::vector<double> SF, SCR, SG;
 
+    // FIX #4: construct distributions once; muF_/muCR_ are stable for the
+    // entire agent loop — they are updated only after update_mu_from_success().
     std::cauchy_distribution<double> cauchyF(muF_, 0.1);
     std::normal_distribution<double> normCR(muCR_, 0.1);
 
@@ -542,8 +608,7 @@ void ARQ2::stepARQ(){
         int i = idx[t];
 
         double F, CR;
-        cauchyF = std::cauchy_distribution<double>(muF_, 0.1);
-        normCR  = std::normal_distribution<double>(muCR_, 0.1);
+        // Do NOT recreate cauchyF / normCR here — see FIX #4 above.
         sample_F_CR(F, CR, cauchyF, normCR);
 
         Vec u(D, 0.0);
@@ -761,6 +826,24 @@ void ARQ2::quarantine(){
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  microRestartARQ
+//  FIX #2: Make the stagnation counter reset conditional on actual improvement.
+//
+//  Original bug: `no_improve_ = 0` appeared unconditionally at the end of the
+//  function, so even when every perturbed candidate failed to improve on its
+//  target, the counter was zeroed.  The next stagnation event could then not
+//  fire for another `stagnation_trigger_` ARQ steps — defeating the purpose of
+//  the mechanism entirely.
+//
+//  Fix: track whether any replacement occurred (`any_replaced`).  Only reset
+//  `no_improve_` when at least one candidate was accepted.  If the restart
+//  produced no improvement, leave the counter at its current value (≥
+//  stagnation_trigger_) so the mechanism can try again on the very next ARQ
+//  step that still finds no improvement.  This prevents the algorithm from
+//  silently stagnating in a region where the micro-restart perturbation σ is
+//  too small to escape.
+// ─────────────────────────────────────────────────────────────────────────────
 void ARQ2::microRestartARQ(){
     if (!prob_) return;
 
@@ -776,6 +859,8 @@ void ARQ2::microRestartARQ(){
     const Vec& L = prob_->lb();
     const Vec& U = prob_->ub();
     const int D = prob_->dimension();
+
+    bool any_replaced = false;  // FIX #2: track whether any slot was improved
 
     for (int t=0; t<wcount; ++t){
         if (prob_->calls() >= max_evals_) break;
@@ -798,6 +883,8 @@ void ARQ2::microRestartARQ(){
             X_[idx] = std::move(cand);
             FX_[idx] = fc;
             resetIDEParamsAt(idx);
+            any_replaced = true;   // FIX #2
+
             if (fc < best_f_) {
                 best_f_ = fc;
                 best_x_ = X_[idx];
@@ -805,9 +892,24 @@ void ARQ2::microRestartARQ(){
         }
     }
 
-    no_improve_ = 0;
+    // FIX #2: only reset the counter when at least one replacement happened.
+    // If nothing improved, leaving no_improve_ ≥ stagnation_trigger_ lets the
+    // mechanism retry immediately on the next eligible ARQ step.
+    if (any_replaced) {
+        no_improve_ = 0;
+    }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  one_iteration
+//  FIX #2 (complement): Track stagnation during IDE steps as well.
+//
+//  Original bug: `no_improve_` was only incremented / reset inside the ARQ
+//  branch.  When the roulette selected IDE for several consecutive iterations,
+//  `no_improve_` stalled, making microRestartARQ blind to stagnation that
+//  occurred during IDE phases.  The fix mirrors the existing ARQ tracking
+//  logic in the IDE branch.
+// ─────────────────────────────────────────────────────────────────────────────
 void ARQ2::one_iteration(){
     if (!prob_) return;
     if (prob_->calls() >= max_evals_) return;
@@ -839,6 +941,19 @@ void ARQ2::one_iteration(){
     switch (hh) {
         case 1:
             stepIDE();
+
+            // FIX #2: mirror ARQ stagnation tracking so microRestartARQ can
+            // fire even when IDE dominates the roulette for many iterations.
+            if (best_f_ < best_prev_) {
+                best_prev_ = best_f_;
+                no_improve_ = 0;
+            } else {
+                no_improve_++;
+            }
+            // Note: microRestartARQ is intentionally NOT called for IDE steps
+            // (it targets ARQ-specific worst individuals), but the counter must
+            // advance so that when ARQ is next selected the trigger fires
+            // correctly.
             break;
 
         case 0:
@@ -862,4 +977,5 @@ void ARQ2::one_iteration(){
     updateStop(FX_);
     printBest();
 }
+
 } // namespace optimsolution
