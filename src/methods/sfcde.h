@@ -43,9 +43,17 @@ private:
     double cauchy_scale_F_{0.1};
     double normal_std_CR_{0.1};
 
-    // Parameter memories.
+    // Maximum number of attempts in the SFA rejection-sampling loops.
+    // Prevents potential infinite loops when mu_fail ≈ MF_ (e.g., late search).
+    static constexpr int kMaxSfaTrials = 20;
+
+    // Parameter memories (success history, SHADE-style).
     std::vector<double> MF_;
     std::vector<double> MCR_;
+
+    // Sequential write pointer for memory slots (cycles 0 … H_-1).
+    // FIX #3: replaces random slot selection so every slot is updated regularly.
+    int k_{0};
 
     // Failure history of the previous generation.
     std::vector<double> fail_F_;
@@ -70,6 +78,11 @@ private:
     double sampleCR(double mu);
     void repairRandom(Vec& x);
     int bestIndex() const;
+
+    // FIX #4: draw 3 distinct indices from [0, N) excluding `exclude`,
+    // using a partial Fisher-Yates shuffle — O(N) worst case, no rejection loops.
+    void sampleThreeDistinct(int N, int exclude,
+                             int& a, int& b, int& c);
 };
 
 } // namespace optimsolution
