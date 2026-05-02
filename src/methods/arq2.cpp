@@ -46,6 +46,7 @@ void ARQ2::configure(const MethodConfig& mc) {
     archive_rate_    = mc.getDbl("archiverate", archive_rate_);
 
     bootstrap_arq_iters_ = mc.getInt("bootstrap_arq_iters", bootstrap_arq_iters_);
+    delta_               = mc.getDbl("delta", delta_);
     roulette_normalize_ = mc.getInt("roulette_normalize", roulette_normalize_);
     ide_progress_sync_  = mc.getInt("ide_progress_sync", ide_progress_sync_);
     ide_strict_improve_ = mc.getInt("ide_strict_improve", ide_strict_improve_);
@@ -65,6 +66,7 @@ void ARQ2::configure(const MethodConfig& mc) {
     if (rsigma_ <= 0.0) rsigma_ = 0.18;
     if (stagnation_trigger_ < 1) stagnation_trigger_ = 1;
     if (bootstrap_arq_iters_ < 0) bootstrap_arq_iters_ = 0;
+    if (delta_ < 0.0 || delta_ >= 1.0) delta_ = 0.0;   // 0 = auto: computed in init() as 1/(5h)
     roulette_normalize_ = roulette_normalize_ ? 1 : 0;
     ide_progress_sync_  = ide_progress_sync_  ? 1 : 0;
     ide_strict_improve_ = ide_strict_improve_ ? 1 : 0;
@@ -103,7 +105,7 @@ void ARQ2::init(){
     // roulette
     h_ = 2;
     n0_ = 2;
-    delta_ = 1.0 / (5.0 * h_);
+    delta_ = (delta_ > 0.0) ? delta_ : 1.0 / (5.0 * h_);
     ni_.assign(h_, static_cast<double>(n0_));
     cni_.assign(h_, 0.0);
     success_.assign(h_, 0);
