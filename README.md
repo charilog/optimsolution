@@ -4,8 +4,6 @@
 
 Optimsolution (version 51) is a C++ optimization framework for repeatable, high-throughput experimentation with population-based metaheuristics and numerical optimizers on both benchmark and application-driven objective functions. It provides a consistent CLI and a Qt-based GUI, supports explicit computational budgets (maximum function evaluations and/or iterations), and produces standardized end-of-run summaries for systematic comparisons across methods, problems, and parameter settings.
 
-The current build exposes **67 methods** and **93 problems** in the CLI.
-
 > English manual: [optimsolution_manual_EN.pdf](./docs/optimsolutionManual_EN.pdf)
 >
 > Greek manual: [optimsolution_manual_GR.pdf](./docs/optimsolutionManual_GR.pdf)
@@ -13,26 +11,6 @@ The current build exposes **67 methods** and **93 problems** in the CLI.
 ---
 
 ## 1) What changed from v48 to v51
-
-### New methods (5)
-Five optimizers were added to the library:
-
-| Short name | Full name |
-|---|---|
-| `aco` | Ant Colony Optimization |
-| `arq3` | ARQ3: Extended ARQ variant |
-| `hades` | HADES optimizer |
-| `lmcmaes` | Limited-Memory CMA-ES |
-| `lracmaes` | Low-Rank Adaptation CMA-ES |
-
-### New problems (3)
-Three real-world application problems were added:
-
-| Short name | Description |
-|---|---|
-| `weatherirrigation` | Weather-driven irrigation scheduling optimization |
-| `smartportenergy` | Smart port energy management |
-| `datacentercooling` | Data center cooling energy optimization |
 
 ### Four run modes in the GUI
 The GUI now exposes four distinct run modes selectable from the **Run mode** combo:
