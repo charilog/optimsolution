@@ -18,7 +18,7 @@ public:
     PSAO() = default;
     ~PSAO() override = default;
 	std::string methodShortName() const override { return "psao"; }
-	std::string methodFullName()  const override { return "Parallel Smell Agent Optimization (PSAO)"; }
+	std::string methodFullName()  const override { return "Parallel Smell Agent Optimization"; }
     // Final local search from [global], as in GA:
     // Read global end_local_* and store them locally.
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {

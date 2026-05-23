@@ -20,7 +20,7 @@ public:
     SIOA() = default;
     ~SIOA() override = default;
 	std::string methodShortName() const override { return "sioa"; }
-	std::string methodFullName()  const override { return "Sporulation-Inspired Optimization Algorithm (SIOA)"; }
+	std::string methodFullName()  const override { return "Sporulation-Inspired Optimization Algorithm"; }
 
     // Receives the global end-local hook from the runner.
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {

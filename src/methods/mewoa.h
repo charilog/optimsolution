@@ -15,7 +15,7 @@ public:
     MEWOA() = default;
     ~MEWOA() override = default;
 	std::string methodShortName() const override { return "mewoa"; }
-	std::string methodFullName()  const override { return "Modified Enhanced Whale Optimization Algorithm (MEWOA)"; }
+	std::string methodFullName()  const override { return "Modified Enhanced Whale Optimization Algorithm"; }
 
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {

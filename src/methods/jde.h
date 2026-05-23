@@ -18,7 +18,7 @@ public:
     jDE() = default;
     ~jDE() override = default;
 	std::string methodShortName() const override { return "jde"; }
-	std::string methodFullName()  const override { return "Self-adaptive Differential Evolution (jDE)"; }
+	std::string methodFullName()  const override { return "Self-adaptive Differential Evolution"; }
 
     // Allow global [end_local_*] settings to propagate from Optimizer
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {

@@ -27,7 +27,7 @@ public:
     PPSO() = default;
     ~PPSO() override = default;
 	std::string methodShortName() const override { return "ppso"; }
-	std::string methodFullName()  const override { return "Parallel Particle Swarm Optimization (PPSO)"; }
+	std::string methodFullName()  const override { return "Parallel Particle Swarm Optimization"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

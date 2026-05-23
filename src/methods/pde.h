@@ -27,7 +27,7 @@ public:
     PDE() = default;
     ~PDE() override = default;
 	std::string methodShortName() const override { return "pde"; }
-	std::string methodFullName()  const override { return "Parallel Differential Evolution (PDE)"; }
+	std::string methodFullName()  const override { return "Parallel Differential Evolution"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

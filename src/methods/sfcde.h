@@ -16,7 +16,7 @@ public:
     ~SFCDE() override = default;
 
     std::string methodShortName() const override { return "sfcde"; }
-    std::string methodFullName()  const override { return "Success-Failure Competitive Differential Evolution (SFCDE)"; }
+    std::string methodFullName()  const override { return "Success-Failure Competitive Differential Evolution"; }
 
     void configure(const MethodConfig& mc) override;
     void init() override;

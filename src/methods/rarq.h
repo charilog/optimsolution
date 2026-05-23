@@ -32,7 +32,7 @@ public:
 
     std::string methodShortName() const override { return "rarq"; }
     std::string methodFullName()  const override {
-        return "Roulette Adaptive Robust Quarantine (RARQ)";
+        return "Roulette Adaptive Robust Quarantine";
     }
 
     void configure(const MethodConfig &mc) override;

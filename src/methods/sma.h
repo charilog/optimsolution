@@ -18,7 +18,7 @@ public:
     ~SMA() override = default;
 
     std::string methodShortName() const override { return "SMA"; }
-    std::string methodFullName()  const override { return "Slime Mould Algorithm (SMA)"; }
+    std::string methodFullName()  const override { return "Slime Mould Algorithm"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

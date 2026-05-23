@@ -16,7 +16,7 @@ public:
     mLSHADE_RL() = default;
     ~mLSHADE_RL() override = default;
 	std::string methodShortName() const override { return "mlshaderl"; }
-	std::string methodFullName()  const override { return "Multi-operator L-SHADE with Reinforcement Learning (mLSHADE-RL)"; }
+	std::string methodFullName()  const override { return "Multi-operator L-SHADE with Reinforcement Learning"; }
 
     // Final local from [global], as in PSAO:
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {

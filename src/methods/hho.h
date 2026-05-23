@@ -17,7 +17,7 @@ public:
     ~HHO() override = default;
 
     std::string methodShortName() const override { return "HHO"; }
-    std::string methodFullName()  const override { return "Harris Hawks Optimization (HHO)"; }
+    std::string methodFullName()  const override { return "Harris Hawks Optimization"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

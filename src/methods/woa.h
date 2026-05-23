@@ -15,7 +15,7 @@ public:
     WOA() = default;
     ~WOA() override = default;
 	std::string methodShortName() const override { return "woa"; }
-	std::string methodFullName()  const override { return "Whale Optimization Algorithm (WOA)"; }
+	std::string methodFullName()  const override { return "Whale Optimization Algorithm"; }
 
     // Final local refinement from [global]
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {

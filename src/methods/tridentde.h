@@ -16,7 +16,7 @@ public:
     TRIDENTDE() = default;
     ~TRIDENTDE() override = default;
 	std::string methodShortName() const override { return "tridentde"; }
-	std::string methodFullName()  const override { return "TRIDENT Differential Evolution (TRIDENT-DE)"; }
+	std::string methodFullName()  const override { return "TRIDENT Differential Evolution"; }
 
     std::string name() const { return "tridentde"; }
 

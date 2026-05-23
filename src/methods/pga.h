@@ -27,7 +27,7 @@ public:
     PGA() = default;
     ~PGA() override = default;
 	std::string methodShortName() const override { return "pga"; }
-	std::string methodFullName()  const override { return "Parallel Genetic Algorithm (PGA)"; }
+	std::string methodFullName()  const override { return "Parallel Genetic Algorithm"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

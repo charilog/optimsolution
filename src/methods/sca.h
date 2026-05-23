@@ -17,7 +17,7 @@ public:
     ~SCA() override = default;
 
     std::string methodShortName() const override { return "SCA"; }
-    std::string methodFullName()  const override { return "Sine-Cosine Algorithm (SCA)"; }
+    std::string methodFullName()  const override { return "Sine-Cosine Algorithm"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

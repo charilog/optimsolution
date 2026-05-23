@@ -13,7 +13,7 @@ public:
     PSO() = default;
     ~PSO() override = default;
 	std::string methodShortName() const override { return "pso"; }
-	std::string methodFullName()  const override { return "Particle Swarm Optimization (PSO)"; }	
+	std::string methodFullName()  const override { return "Particle Swarm Optimization"; }	
 
     // Obtain final end-local from [global] (as in DE)
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {

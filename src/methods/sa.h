@@ -15,7 +15,7 @@ public:
     SA() = default;
     ~SA() override = default;
 	std::string methodShortName() const override { return "sa"; }
-	std::string methodFullName()  const override { return "Simulated Annealing (SA)"; }
+	std::string methodFullName()  const override { return "Simulated Annealing"; }
 
     // Final local search from [global]
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {

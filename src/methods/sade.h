@@ -19,7 +19,7 @@ public:
     SaDE() = default;
     ~SaDE() override = default;
 	std::string methodShortName() const override { return "sade"; }
-	std::string methodFullName()  const override { return "Self-adaptive Differential Evolution (SaDE)"; }
+	std::string methodFullName()  const override { return "Self-adaptive Differential Evolution"; }
 
     // Allows global [end_local_*] settings to be passed through the Optimizer.
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {

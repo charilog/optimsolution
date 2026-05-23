@@ -21,7 +21,7 @@ public:
     ~KH() override = default;
 
     std::string methodShortName() const override { return "KH"; }
-    std::string methodFullName()  const override { return "Krill Herd Algorithm (KH)"; }
+    std::string methodFullName()  const override { return "Krill Herd Algorithm"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

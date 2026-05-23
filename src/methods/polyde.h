@@ -34,7 +34,7 @@ public:
     std::string methodShortName() const override { return "polyde"; }
 
     std::string methodFullName() const override {
-        return "Polyphase Expert Multi-Strategy DE (PolyphaseDE)";
+        return "Polyphase Expert Multi-Strategy DE";
     }
 
     void configure(const MethodConfig& mc) override;

@@ -20,7 +20,7 @@ public:
     UDE3() = default;
     ~UDE3() override = default;
 	std::string methodShortName() const override { return "ude3"; }
-	std::string methodFullName()  const override { return "Enhanced Unified Differential Evolution Algorithm 3 (UDE3)"; }
+	std::string methodFullName()  const override { return "Enhanced Unified Differential Evolution Algorithm 3"; }
 
     // Comment translated from Greek.
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {

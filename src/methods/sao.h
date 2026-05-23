@@ -15,7 +15,7 @@ public:
     SAO() = default;
     ~SAO() override = default;
 	std::string methodShortName() const override { return "sao"; }
-	std::string methodFullName()  const override { return "Smell Agent Optimization (SAO)"; }
+	std::string methodFullName()  const override { return "Smell Agent Optimization"; }
 
     void configure(const MethodConfig& mc) override;
 

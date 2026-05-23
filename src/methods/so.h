@@ -16,7 +16,7 @@ public:
     ~SO() override = default;
 
     std::string methodShortName() const override { return "SO"; }
-    std::string methodFullName()  const override { return "Spiral Optimization (SO)"; }
+    std::string methodFullName()  const override { return "Spiral Optimization"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

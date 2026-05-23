@@ -38,7 +38,7 @@ public:
     PSIOA() = default;
     ~PSIOA() override = default;
 	std::string methodShortName() const override { return "psioa"; }
-	std::string methodFullName()  const override { return "Parallel Sporulation-Inspired Optimization Algorithm (PSIOA)"; }
+	std::string methodFullName()  const override { return "Parallel Sporulation-Inspired Optimization Algorithm"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

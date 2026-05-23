@@ -15,7 +15,7 @@ public:
     JSO() = default;
     ~JSO() override = default;
     std::string methodShortName() const override { return "jso"; }
-    std::string methodFullName()  const override { return "Single Objective Real-Parameter Optimization (jSO)"; }
+    std::string methodFullName()  const override { return "Single Objective Real-Parameter Optimization"; }
 
     void configure(const MethodConfig& mc) override;
     void init() override;

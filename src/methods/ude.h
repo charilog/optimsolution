@@ -85,7 +85,7 @@ public:
 
     std::string methodShortName() const override { return "UDE"; }
     std::string methodFullName()  const override {
-        return "Unified Adaptive Differential Evolution (UDE)";
+        return "Unified Adaptive Differential Evolution";
     }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {

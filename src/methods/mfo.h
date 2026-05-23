@@ -17,7 +17,7 @@ public:
     ~MFO() override = default;
 
     std::string methodShortName() const override { return "MFO"; }
-    std::string methodFullName()  const override { return "Moth-Flame Optimization (MFO)"; }
+    std::string methodFullName()  const override { return "Moth-Flame Optimization"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

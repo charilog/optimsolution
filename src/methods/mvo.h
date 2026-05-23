@@ -11,18 +11,15 @@
 
 namespace optimsolution {
 
-// Honey Badger Algorithm (HBA)
-// Continuous population-based metaheuristic with two phases:
-// (1) digging (exploration) using a cardioid-like movement, (2) honey (exploitation)
-// close to the prey (global best). This implementation follows the canonical two-phase
-// update with a decaying density factor alpha.
-class HBA : public Optimizer {
+// Multi-Verse Optimizer (MVO)
+// Canonical implementation for continuous domains using white-hole and wormhole operators.
+class MVO : public Optimizer {
 public:
-    HBA() = default;
-    ~HBA() override = default;
+    MVO() = default;
+    ~MVO() override = default;
 
-    std::string methodShortName() const override { return "HBA"; }
-    std::string methodFullName()  const override { return "Honey Badger Algorithm"; }
+    std::string methodShortName() const override { return "MVO"; }
+    std::string methodFullName()  const override { return "Multi-Verse Optimizer"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;
@@ -79,7 +76,7 @@ public:
             local_rate_   = lr;
         }
 
-        // Population override (aliases)
+        // Population override from [mvo] (aliases)
         int p = -1;
         p = mc.getInt("population",
             mc.getInt("Population",
@@ -94,21 +91,20 @@ public:
             this->setPopulation(pop_override_);
         }
 
-        // HBA parameters
-        beta_ = parse_double(mc.getStr("beta", std::to_string(beta_)), mc.getDbl("beta", beta_));
-        C_    = parse_double(mc.getStr("C",    std::to_string(C_)),    mc.getDbl("C",    C_));
-        pdig_ = parse_double(mc.getStr("p_dig",std::to_string(pdig_)), mc.getDbl("p_dig", pdig_));
-        eps_  = parse_double(mc.getStr("eps",  std::to_string(eps_)),  mc.getDbl("eps",  eps_));
-        i_cap_= parse_double(mc.getStr("i_cap",std::to_string(i_cap_)),mc.getDbl("i_cap", i_cap_));
+        // Wormhole schedule
+        wep_min_ = parse_double(mc.getStr("wep_min", std::to_string(wep_min_)),
+                     mc.getDbl("wep_min", wep_min_));
+        wep_max_ = parse_double(mc.getStr("wep_max", std::to_string(wep_max_)),
+                     mc.getDbl("wep_max", wep_max_));
+        if (wep_min_ < 0.0) wep_min_ = 0.0;
+        if (wep_max_ > 1.0) wep_max_ = 1.0;
+        if (wep_max_ < wep_min_) std::swap(wep_max_, wep_min_);
 
-        if (!std::isfinite(beta_) || beta_ < 1.0) beta_ = 6.0;
-        if (!std::isfinite(C_)    || C_    <= 0.0) C_ = 2.0;
-        if (!std::isfinite(pdig_)) pdig_ = 0.5;
-        pdig_ = (pdig_ < 0.0 ? 0.0 : (pdig_ > 1.0 ? 1.0 : pdig_));
-        if (!std::isfinite(eps_)  || eps_ <= 0.0) eps_ = 1e-12;
-        if (!std::isfinite(i_cap_)|| i_cap_ <= 0.0) i_cap_ = 1e3;
+        tdr_power_ = parse_double(mc.getStr("tdr_power", std::to_string(tdr_power_)),
+                       mc.getDbl("tdr_power", tdr_power_));
+        if (!std::isfinite(tdr_power_) || tdr_power_ <= 0.1) tdr_power_ = 6.0;
 
-        // Final local at end (aliases; accepts typo end_local_refin)
+        // Final local at end (aliases; also accepts the typo end_local_refin)
         int flg = mc.getInt("end_local_refine",
                   mc.getInt("final_local",
                   mc.getInt("final.local",
@@ -129,8 +125,9 @@ public:
         end_local_refine_ = fl_enable;
         end_local_method_ = flm;
 
-        debug_hba_ = mc.getInt("debug_hba", debug_hba_);
-        debug_hba_ = parse_int(mc.getStr("debug_hba", std::to_string(debug_hba_)), debug_hba_);
+        // Optional echo flag
+        debug_mvo_ = mc.getInt("debug_mvo", debug_mvo_);
+        debug_mvo_ = parse_int(mc.getStr("debug_mvo", std::to_string(debug_mvo_)), debug_mvo_);
     }
 
 protected:
@@ -142,7 +139,7 @@ private:
     using Vec = std::vector<double>;
 
     void ensureBounds(Vec& v);
-    double meanRange() const;
+    int  rouletteSelect(const std::vector<double>& w);
 
     inline double eval(const Vec& v){
         double f = prob_->evaluate(v);
@@ -154,21 +151,18 @@ private:
     std::vector<Vec>    X_;
     std::vector<double> FX_;
 
-    // params
-    double beta_{6.0};
-    double C_{2.0};
-    double pdig_{0.5};
-    double eps_{1e-12};
-    double i_cap_{1e3};
-
     std::string local_method_ = "lbfgs";
     double      local_rate_   = 0.0;
 
     bool        end_local_refine_ = false;
     std::string end_local_method_;
 
-    int         debug_hba_ = 0;
+    int         debug_mvo_ = 0;
     int         pop_override_ = -1;
+
+    double      wep_min_ = 0.2;
+    double      wep_max_ = 1.0;
+    double      tdr_power_ = 6.0;
 
     long long   iter_ = 0;
 };

@@ -20,7 +20,7 @@ public:
     ~HDE() override = default;
 
     std::string methodShortName() const override { return "hde"; }
-    std::string methodFullName()  const override { return "Hybrid Differential Evolution (HDE)"; }
+    std::string methodFullName()  const override { return "Hybrid Differential Evolution"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

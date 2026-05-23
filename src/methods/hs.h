@@ -17,7 +17,7 @@ public:
     ~HS() override = default;
 
     std::string methodShortName() const override { return "HS"; }
-    std::string methodFullName()  const override { return "Harmony Search (HS)"; }
+    std::string methodFullName()  const override { return "Harmony Search"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;
