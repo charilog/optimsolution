@@ -327,5 +327,9 @@ For full details see the English manual: [optimsolution_manual_EN.pdf](./docs/op
 The following screenshot shows the last iterations of **Run 30** and the final summary for:
 
 - **Method:** `arq` · **Problem:** `tersoffc (Dim=24)` · **Runs:** 30 · **Budget:** 150 000 evals/run
+- CLI syntax:
+```bash
+optimsolution arq tersoffc
+```
 
 ![Console output: ARQ on tersoffc (Dim=24)](./docs/arq_tersoffc.png)
