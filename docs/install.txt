@@ -1,0 +1,14 @@
+Remove-Item -Recurse -Force .\build
+
+cmake -S . -B build `
+"-DCMAKE_PROJECT_INCLUDE:FILEPATH=$PWD/cmake/optimsolution_gui.cmake" `
+"-DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\msvc2022_64"
+
+cmake --build build --config Release --target optimsolution_gui
+
+cmake --build build --config Release --target optimsolution
+
+
+ & "C:\Qt\6.10.1\msvc2022_64\bin\windeployqt.exe" --release --compiler-runtime --no-translations "C:\Users\admin\Desktop\optimsolution\build\Release\optimsolution_gui.exe"
+ 
+.\build\Release\optimsolution_gui
