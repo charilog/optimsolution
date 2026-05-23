@@ -2,9 +2,9 @@
   <img src="./docs/optimsolution.png" alt="Optimsolution logo" width="720">
 </p>
 
-Optimsolution (version 48) is a C++ optimization framework for repeatable, high-throughput experimentation with population-based metaheuristics and numerical optimizers on both benchmark and application-driven objective functions. It provides a consistent CLI and a Qt-based GUI, supports explicit computational budgets (for example maximum function evaluations and/or iterations), and produces standardized end-of-run summaries for systematic comparisons across methods, problems, and parameter settings.
+Optimsolution (version 51) is a C++ optimization framework for repeatable, high-throughput experimentation with population-based metaheuristics and numerical optimizers on both benchmark and application-driven objective functions. It provides a consistent CLI and a Qt-based GUI, supports explicit computational budgets (maximum function evaluations and/or iterations), and produces standardized end-of-run summaries for systematic comparisons across methods, problems, and parameter settings.
 
-The current build described in this README is aligned with the active `CMakeLists.txt` and currently exposes **62 methods** and **90 problems** in the CLI.
+The current build exposes **67 methods** and **93 problems** in the CLI.
 
 > English manual: [optimsolution_manual_EN.pdf](./docs/optimsolutionManual_EN.pdf)
 >
@@ -12,43 +12,47 @@ The current build described in this README is aligned with the active `CMakeList
 
 ---
 
-## 1) What changed from GUI v47 to v48
+## 1) What changed from v48 to v51
 
-Version 48 extends and cleans up the batch-analysis workflow introduced in earlier GUI versions.
+### New methods (5)
+Five optimizers were added to the library:
 
-### Batch analysis is now more complete
-The **System** tab now provides a richer batch-analysis workspace. In addition to the main results table, the GUI includes separate views for:
+| Short name | Full name |
+|---|---|
+| `aco` | Ant Colony Optimization |
+| `arq3` | ARQ3: Extended ARQ variant |
+| `hades` | HADES optimizer |
+| `lmcmaes` | Limited-Memory CMA-ES |
+| `lracmaes` | Low-Rank Adaptation CMA-ES |
 
-- **Results Table**
-- **Best Table**
-- **Mean Table**
-- **Best Ranking**
-- **Mean Ranking**
-- **Final Ranking**
-- **Pairwise Wilcoxon**
-- **Friedman Ranking**
+### New problems (3)
+Three real-world application problems were added:
 
-This makes it easier to inspect raw batch values, per-problem rankings, and overall final rankings without leaving the GUI.
+| Short name | Description |
+|---|---|
+| `weatherirrigation` | Weather-driven irrigation scheduling optimization |
+| `smartportenergy` | Smart port energy management |
+| `datacentercooling` | Data center cooling energy optimization |
 
-### External experiment loading is more robust
-`Load experiment CSV...` now supports two practical workflows:
+### Four run modes in the GUI
+The GUI now exposes four distinct run modes selectable from the **Run mode** combo:
 
-1. loading a single convergence CSV as an output tab, and
-2. reconstructing a full batch from a folder that contains batch experiment CSV files.
+1. **Single run** — executes one run of the selected method on the selected problem with the current settings. Produces a convergence plot and a run summary.
 
-When a batch is reconstructed, the GUI now restores the detected methods, problems, dimensions, and the relevant batch-analysis state more reliably.
+2. **Batch run (selected methods/problems)** — runs all selected methods against all selected problems for the configured number of runs. Results are aggregated into ranked comparison tables (Results, Best, Mean, Best Ranking, Mean Ranking, Final Ranking, Pairwise Wilcoxon, Friedman Ranking).
 
-### Better synchronization for batch selections and dimensions
-The Selection area and the batch summary views are now better synchronized. When batch methods, problems, or variable dimensions change, the corresponding batch table content is refreshed more consistently, and stale cached cells are invalidated when dimensions no longer match.
+3. **Sensitivity analysis of method parameters** — sweeps one or more method parameters over a defined range while keeping the problem fixed. Produces a sensitivity table showing how each parameter value affects the result.
 
-### Improved convergence plotting
-The convergence plot logic in v48 improves two practical issues:
+4. **Sensitivity analysis of problem parameters** — sweeps one or more problem parameters (e.g. dimension, bounds) while keeping the method fixed. Useful for characterizing problem difficulty as a function of its own parameters.
 
-- the Y-axis can anchor to a known best minimum when that information is available, which helps with problems whose optimum is negative or otherwise far from the currently displayed range,
-- the extra compact black info panel is no longer drawn on top of overlay convergence plots; the standard legend remains the primary plot annotation.
+### Code Wizard improvements
+The **Code Wizard** panel supports creating and deleting methods and problems directly from the GUI. When a new method or problem is generated or deleted, the application writes a pending-rebuild flag (`.rebuild_pending`) and prompts for a restart. On the next startup, if the flag is detected, the GUI offers to rebuild automatically before loading the factory — eliminating the LNK1104 locked-executable error that would otherwise occur on Windows.
 
-### Safer CSV cleanup
-`Delete CSV files` is now restricted to the GUI runtime folder tree named **`optimsolution_gui_run`**. This makes the cleanup action more predictable and avoids scanning unrelated directories.
+### Layout and UX fixes
+- **Maximize** buttons now correctly hide all other areas, including the Code Wizard panel. Previously, the wizard panel remained visible regardless of which area was maximized.
+- The maximized area now fills the full window height. The batch panel (methods list, problems list, batch settings) expands to use all available vertical space instead of staying anchored at the top.
+- Method short names in the **Optimization method** combo are now displayed in lowercase only.
+- Run mode labels are clearer: *Sensitivity analysis of method parameters* and *Sensitivity analysis of problem parameters* replace the previous abbreviated labels.
 
 ---
 
@@ -59,20 +63,21 @@ CLI syntax:
 ```bash
 optimsolution <method> <problem>
 ```
-or 
+or
 
 ```bash
 optimsolution <method> <problem> <dimension>
 ```
 
-### Methods (62)
+### Methods (67)
 
-#### Differential evolution and closely related variants
+#### Differential evolution and variants
 
 | Short name | Full name |
 |---|---|
 | `arq` | ARQ: Adaptive RTR with Quarantine |
 | `arq2` | ARQ2: ARQ/IDE roulette with Quarantine + ARQ-only micro-restart + jSO-style K |
+| `arq3` | ARQ3: Extended ARQ variant |
 | `awjso` | Adaptive-Weight jSO |
 | `bjso` | Band-guided jSO |
 | `bwjso` | Best-Worst corrected jSO |
@@ -96,6 +101,7 @@ optimsolution <method> <problem> <dimension>
 | Short name | Full name |
 |---|---|
 | `abc` | Artificial Bee Colony |
+| `aco` | Ant Colony Optimization |
 | `acor` | Ant Colony Optimization for Continuous Domains |
 | `alo` | Ant Lion Optimizer |
 | `ba` | Bat Algorithm |
@@ -111,11 +117,14 @@ optimsolution <method> <problem> <dimension>
 | `gao` | Giant Armadillo Optimizer |
 | `gsa` | Gravitational Search Algorithm |
 | `gwo` | Grey Wolf Optimizer |
+| `hades` | HADES Optimizer |
 | `hba` | Honey Badger Algorithm |
 | `hho` | Harris Hawks Optimization |
 | `hs` | Harmony Search |
 | `jaya` | JAYA |
 | `kh` | Krill Herd |
+| `lmcmaes` | Limited-Memory CMA-ES |
+| `lracmaes` | Low-Rank Adaptation CMA-ES |
 | `mewoa` | Modified Enhanced Whale Optimization Algorithm |
 | `mfo` | Moth-Flame Optimization |
 | `mpa` | Marine Predators Algorithm |
@@ -144,24 +153,25 @@ optimsolution <method> <problem> <dimension>
 | `lbfgs` | Limited-memory Broyden-Fletcher-Goldfarb-Shanno |
 | `nm` | Nelder-Mead Simplex |
 
-### Problems (90)
+### Problems (93)
 
 #### Classical and synthetic benchmarks
 
-`ackley`, `attractivesector`, `bohachevsky1`, `bohachevsky2`, `bohachevsky3`, `branin`
-`bucherastrigin`, `camel`, `cigar`, `cosinemixture`, `differentpowers`, `diracproblem`, `easom`
-`ellipsoidal`, `equalmaxima`, `expotential`, `gallagher101`, `gallagher21`, `goldstein`
-`griewank`, `griewankrosenbrock`, `hansen`, `hartmann3`, `hartmann6`, `katsuura`, `levy`
-`lunacekbirastrigin`, `michalewicz`, `potential`, `rastrigin`, `rastrigin2`, `rosenbrock`
-`rotatedrosenbrock`, `schaffer`, `schwefel`, `shekel5`, `shekel7`, `shekel10`, `shubert`
+`ackley`, `attractivesector`, `bohachevsky1`, `bohachevsky2`, `bohachevsky3`, `branin`,
+`bucherastrigin`, `camel`, `cigar`, `cosinemixture`, `differentpowers`, `diracproblem`, `easom`,
+`ellipsoidal`, `equalmaxima`, `expotential`, `gallagher101`, `gallagher21`, `goldstein`,
+`griewank`, `griewankrosenbrock`, `hansen`, `hartmann3`, `hartmann6`, `katsuura`, `levy`,
+`lunacekbirastrigin`, `michalewicz`, `potential`, `rastrigin`, `rastrigin2`, `rosenbrock`,
+`rotatedrosenbrock`, `schaffer`, `schwefel`, `shekel5`, `shekel7`, `shekel10`, `shubert`,
 `sinusoidal`, `sphere`, `stepellipsoidal`, `test2n`, `test30n`, `weierstrass`, `zakharov`
 
 #### Real-world and application-driven problems
 
-`antennaarray`, `antennaula`, `bifunctionalcatalyst`, `cassini`, `ded1`, `ded2`, `eld1`, `eld2`
-`eld3`, `eld4`, `eld5`, `fmsynth`, `gascycle`, `heatexchanger`, `himmelblau`, `hydrothermal`
-`ik6dof`, `messenger`, `ofdmpower`, `polyphase`, `portfoliomv`, `tandem`, `tersoffb`, `tersoffc`
-`tnep`, `transmissionpricing`, `vibratingplatform`, `wirelesscoverage`
+`antennaarray`, `antennaula`, `bifunctionalcatalyst`, `cassini`, `datacentercooling`, `ded1`, `ded2`,
+`eld1`, `eld2`, `eld3`, `eld4`, `eld5`, `fmsynth`, `gascycle`, `heatexchanger`, `himmelblau`,
+`hydrothermal`, `ik6dof`, `messenger`, `ofdmpower`, `polyphase`, `portfoliomv`, `smartportenergy`,
+`tandem`, `tersoffb`, `tersoffc`, `tnep`, `transmissionpricing`, `vibratingplatform`,
+`weatherirrigation`, `wirelesscoverage`
 
 #### GKLS test classes
 
@@ -169,11 +179,10 @@ optimsolution <method> <problem> <dimension>
 
 #### CEC 2022 representative functions
 
-`cec2022_zakharov`, `cec2022_rosenbrock`, `cec2022_schafferf7`
-`cec2022_noncontinuous_rastrigin`, `cec2022_levy`, `cec2022_hybrid2`, `cec2022_hybrid6`
-`cec2022_hybrid10`, `cec2022_composition1`, `cec2022_composition2`, `cec2022_composition6`
+`cec2022_zakharov`, `cec2022_rosenbrock`, `cec2022_schafferf7`,
+`cec2022_noncontinuous_rastrigin`, `cec2022_levy`, `cec2022_hybrid2`, `cec2022_hybrid6`,
+`cec2022_hybrid10`, `cec2022_composition1`, `cec2022_composition2`, `cec2022_composition6`,
 `cec2022_composition7`
-
 
 ---
 
@@ -188,19 +197,19 @@ optimsolution <method> <problem> <dimension>
   - Workload: **Desktop development with C++**
   - Components: **MSVC v143**, **Windows 10/11 SDK**
 - CMake available in **PATH**
-- **Qt 6.x (MSVC 2022 x64)** for the GUI target, for example `C:\Qt\6.10.1\msvc2022_64`
+- **Qt 6.x (MSVC 2022 x64)** for the GUI target, e.g. `C:\Qt\6.10.1\msvc2022_64`
 
 Recommended shell: **x64 Native Tools Command Prompt for VS 2022** or **Developer PowerShell for VS 2022**.
 
-### Build and run (GUI + CLI) — Debug
+### Build and run (GUI + CLI) — Release
 
-Delete the existing `build` directory.
+Delete any existing build directory.
 
 ```powershell
 Remove-Item -Recurse -Force .\build -ErrorAction SilentlyContinue
 ```
 
-Configure the project with the GUI target enabled.
+Configure with the GUI target enabled.
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
@@ -208,36 +217,26 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
   "-DCMAKE_PREFIX_PATH=C:\Qt\6.10.1\msvc2022_64"
 ```
 
-Build the GUI executable.
+Build both targets.
 
 ```powershell
-cmake --build build --config Debug --target optimsolution_gui
+cmake --build build --config Release --target optimsolution_gui
+cmake --build build --config Release --target optimsolution
 ```
 
-Build the CLI executable.
-
-```powershell
-cmake --build build --config Debug --target optimsolution
-```
-
-Deploy the required Qt runtime next to the GUI executable.
+Deploy Qt runtime next to the GUI executable.
 
 ```powershell
 & "C:\Qt\6.10.1\msvc2022_64\bin\windeployqt.exe" `
   --no-translations --compiler-runtime `
-  ".\build\Debug\optimsolution_gui.exe"
+  ".\build\Release\optimsolution_gui.exe"
 ```
 
-Run the GUI.
+Run.
 
 ```powershell
-.\build\Debug\optimsolution_gui.exe
-```
-
-Run the CLI (example).
-
-```powershell
-.\build\Debug\optimsolution.exe arq tersoffc
+.\build\Release\optimsolution_gui.exe
+.\build\Release\optimsolution.exe arq tersoffc
 ```
 
 ---
@@ -245,21 +244,18 @@ Run the CLI (example).
 ## 4) Linux (Console + GUI)
 
 ### Prerequisites
-- GCC or Clang
-- CMake
-- Ninja (recommended)
-- **Qt 6.x development packages** for the GUI target
+- GCC or Clang, CMake, Ninja (recommended)
+- Qt 6.x development packages
 
-Recommended shell: a standard terminal in the repository root.
-
-### Build and run (GUI + CLI) — Debug
+### Build and run — Release
 
 ```bash
-sudo apt update
-sudo apt upgrade
+sudo apt update && sudo apt upgrade
 sudo apt install qt6-base-dev qt6-base-dev-tools qt6-tools-dev qt6-tools-dev-tools
 rm -rf build
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PROJECT_INCLUDE=cmake/optimsolution_gui.cmake
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PROJECT_INCLUDE=cmake/optimsolution_gui.cmake
 cmake --build build --target optimsolution_gui
 cmake --build build --target optimsolution
 ./build/optimsolution_gui
@@ -270,39 +266,33 @@ cmake --build build --target optimsolution
 
 ## 5) Settings (`optimsolution.cfg`)
 
-### Console (CLI)
+Both the CLI and GUI read experiment defaults from `optimsolution.cfg`. The GUI can apply additional runtime-only overrides (e.g. forcing CSV convergence output for plots) without modifying the file.
 
-The console solver reads experiment defaults from `optimsolution.cfg`.
-
-- **`[global]`** defines run-wide defaults such as population, evaluation budget, number of runs, and seeding.
-- A **method section** such as `[jso]`, `[arq]`, or `[ga]` can override global keys for a specific optimizer.
-- Additional sections such as **`[init]`**, **`[stop]`**, and **`[sensitivity]`** control initialization, stopping rules, and parameter sensitivity studies.
-
-### Key defaults
+### Key sections
 
 ```ini
 [global]
-population = 200
-max_iters  = 500000
-max_evals  = 150000
-seed_base  = 4242
-runs       = 30
-success_tol = 1e-8
-local_rate   = 0.00
-local_method = lbfgs
+population       = 200
+max_iters        = 500000
+max_evals        = 150000
+seed_base        = 4242
+runs             = 30
+success_tol      = 1e-8
+local_rate       = 0.00
+local_method     = lbfgs
 end_local_refine = 0
-end_local_method = lbfgs   ; or bfgs / nm / gd
-summary_enable = 1
+end_local_method = lbfgs   ; bfgs / nm / gd
+summary_enable   = 1
 
 [stop]
 rule = maxevals            ; bss|wss|tss|boss|srs|irs|doublebox|maxevals|all|none
 eps  = 1e-10
 
 [init]
-type = uniform             ; uniform | normal | cauchy | laplace | lognormal | exponential | beta | levy | lhs | halton | oppositional
+type = uniform             ; uniform|normal|cauchy|laplace|lognormal|exponential|beta|levy|lhs|halton|oppositional
 ```
 
-### Example method overrides
+A method section overrides any global key for that optimizer only.
 
 ```ini
 [arq]
@@ -316,43 +306,34 @@ local_rate   = 0.00
 local_method = lbfgs
 ```
 
-### How these settings map to the run summary
-- **Population**: `global.population = 200`, but a method section can override it.
-- **Runs**: `global.runs = 30`.
-- **Evaluation budget**: `stop.rule = maxevals` together with `global.max_evals`.
-- **Maximum iterations**: `global.max_iters = 500000`.
-- **Initialization**: `init.type = uniform`.
-- **Local search**: controlled by `local_rate`, `local_method`, and `end_local_refine`.
-
-The GUI uses the same configuration file as the CLI, but it can apply runtime-only overrides when launching runs. A practical example is the **Force CSV convergence for plotting** option, which helps the GUI populate convergence plots and batch-analysis tables from CSV traces.
-
 ---
 
-## 6) GUI notes
+## 6) GUI overview
 
-The GUI and CLI share the same optimization core. In practice, the GUI is useful when you want to:
-
-- inspect convergence plots,
-- load a previous experiment CSV,
-- reconstruct a batch from saved CSV files,
-- export tables and plots,
-- run sensitivity studies from the same configuration base.
-
-Current GUI overview:
+The GUI and CLI share the same optimization core. The GUI adds four run modes, convergence plotting, batch analysis, sensitivity studies, and a code wizard for extending the framework without leaving the application.
 
 ![optimsolution GUI](./docs/optimsolution_gui.png)
 
-For details, see the English manual: [optimsolution_manual_EN.pdf](./docs/optimsolutionManual_EN.pdf)
+### Run modes
+
+| Mode | Description |
+|---|---|
+| **Single run** | One run of the selected method on the selected problem. Produces a convergence plot and run summary. |
+| **Batch run** | All selected methods × all selected problems for N runs. Results appear in eight analysis views: Results Table, Best Table, Mean Table, Best Ranking, Mean Ranking, Final Ranking, Pairwise Wilcoxon, Friedman Ranking. |
+| **Sensitivity analysis of method parameters** | Sweeps method parameters over a defined range (problem fixed). Shows how each parameter value affects the result. |
+| **Sensitivity analysis of problem parameters** | Sweeps problem parameters such as dimension or bounds (method fixed). Characterizes problem difficulty as a function of its own configuration. |
+
+### Code Wizard
+The Code Wizard panel (bottom-right) generates skeleton `.h` and `.cpp` files for new methods or problems, patches `factory.cpp` and `CMakeLists.txt` automatically, and triggers a rebuild on the next startup.
+
+For full details see the English manual: [optimsolution_manual_EN.pdf](./docs/optimsolutionManual_EN.pdf)
 
 ---
 
-## 7) Example run console output (end of execution)
+## 7) Example run console output
 
 The following screenshot shows the last iterations of **Run 30** and the final summary for:
 
-- **Method:** `arq`
-- **Problem:** `tersoffc (Dim=24)`
-- **Runs:** 30
-- **Budget:** 150000 evals/run
+- **Method:** `arq` · **Problem:** `tersoffc (Dim=24)` · **Runs:** 30 · **Budget:** 150 000 evals/run
 
 ![Console output: ARQ on tersoffc (Dim=24)](./docs/arq_tersoffc.png)
