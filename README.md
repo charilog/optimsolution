@@ -290,7 +290,9 @@ local_method = lbfgs
 
 The GUI and CLI share the same optimization core. The GUI adds four run modes, convergence plotting, batch analysis, sensitivity studies, and a code wizard for extending the framework without leaving the application.
 
-![optimsolution GUI](./docs/optimsolution_gui.png)
+![optimsolution GUI](./docs/run1.png)
+![optimsolution GUI](./docs/run2.png)
+![optimsolution GUI](./docs/run3.png)
 
 ### Run modes
 
