@@ -1,5 +1,4 @@
 cmake_minimum_required(VERSION 3.16)
-
 project(optimsolution LANGUAGES CXX)
 
 # ---------------------------------------------------------------------
@@ -107,13 +106,13 @@ add_library(optimcore
     src/problems/cec2022_composition6.cpp
 	src/problems/cec2022_composition7.cpp
 	
-	
-	
-	
-    src/methods/arq.cpp
+	src/problems/weatherirrigation.cpp	
+	src/problems/smartportenergy.cpp		
+	src/problems/datacentercooling.cpp	src/methods/arq.cpp
     src/methods/de.cpp
     src/methods/pso.cpp
     src/methods/ga.cpp
+	src/methods/aco.cpp
     src/methods/acor.cpp
     src/methods/sa.cpp
     src/methods/woa.cpp
@@ -168,10 +167,10 @@ add_library(optimcore
 	src/methods/bwjso.cpp
 	src/methods/bjso.cpp
 	src/methods/nlshadelbc.cpp
-
-
-
-
+	src/methods/arq3.cpp
+	src/methods/hades.cpp
+	src/methods/lracmaes.cpp
+	src/methods/lmcmaes.cpp
 
 	
 	
