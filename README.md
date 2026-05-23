@@ -26,12 +26,6 @@ The GUI now exposes four distinct run modes selectable from the **Run mode** com
 ### Code Wizard improvements
 The **Code Wizard** panel supports creating and deleting methods and problems directly from the GUI. When a new method or problem is generated or deleted, the application writes a pending-rebuild flag (`.rebuild_pending`) and prompts for a restart. On the next startup, if the flag is detected, the GUI offers to rebuild automatically before loading the factory — eliminating the LNK1104 locked-executable error that would otherwise occur on Windows.
 
-### Layout and UX fixes
-- **Maximize** buttons now correctly hide all other areas, including the Code Wizard panel. Previously, the wizard panel remained visible regardless of which area was maximized.
-- The maximized area now fills the full window height. The batch panel (methods list, problems list, batch settings) expands to use all available vertical space instead of staying anchored at the top.
-- Method short names in the **Optimization method** combo are now displayed in lowercase only.
-- Run mode labels are clearer: *Sensitivity analysis of method parameters* and *Sensitivity analysis of problem parameters* replace the previous abbreviated labels.
-
 ---
 
 ## 2) Available methods and problems (CLI)
