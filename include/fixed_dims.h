@@ -138,6 +138,8 @@ inline int getFixedDimOrZero(std::string name) {
 		
 		// Idealized gas cycle efficiency (Brayton-type): D = 4
         {"gascycle",		    4}
+				// Weather-aware irrigation scheduling problem: D = 24
+        //{"weatherirrigation",		    24}
     };
 
     auto it = kFixed.find(name);
