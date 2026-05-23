@@ -15,12 +15,30 @@ constexpr int    kMinDim = 6;
 
 WeatherIrrigation::WeatherIrrigation()
     : max_irrigation_(80.0),
-      initial_storage_ratio_(0.42),
-      yield_reward_(480.0),
-      terminal_storage_weight_(8.0),
-      peak_weight_(1.40),
+      initial_storage_ratio_(0.35),          // CHANGED: was 0.42, paper says 0.35
+      yield_reward_(350.0),                  // CHANGED: was 480.0, paper says 350
+      terminal_storage_weight_(1.2),         // CHANGED: was 8.0, paper says 1.2
+      peak_weight_(0.035),                   // CHANGED: was 1.40, paper says 0.035
       seasonal_budget_target_(0.0),
-      seasonal_budget_weight_(0.018),
+      seasonal_budget_weight_(0.010),        // CHANGED: was 0.018, paper says 0.010
+      // ── Group A: High-priority tunable parameters ──────────────
+      osc_eff_amplitude_(0.22),              // OK — matches paper
+      resonance_weight_(8.0),                // OK — matches paper
+      osc_freq_base_(0.22),                  // CHANGED: was 0.18, paper says freq_i = 0.22 + 0.09*sin(πs)
+      osc_freq_amp_(0.09),                   // CHANGED: was 0.11, paper says 0.09
+      ky_base_(0.85),                        // CHANGED: was 0.90, paper says 0.85
+      ky_amp_(0.55),                         // CHANGED: was 0.70, paper says 0.55
+      // ── Group B: Medium-priority tunable parameters ────────────
+      smax_base_(50.0),                      // CHANGED: was 26.0, paper says 50
+      smax_amp_(20.0),                       // CHANGED: was 22.0, paper says 20
+      deficit_weight_(0.12),                 // OK — matches paper
+      pref_weight_(0.014),                   // CHANGED: was 0.015, paper says 0.014 (base coeff)
+      // ── Group C: Lower-priority tunable parameters ─────────────
+      soil_retention_base_(0.52),            // CHANGED: was 0.58, paper says 0.52
+      soil_retention_amp_(0.18),             // CHANGED: was 0.24, paper says 0.18
+      smoothness_weight_(0.06),              // OK — matches paper
+      peak_threshold_(62.0),                 // CHANGED: was 34.0, paper says 62
+      // ── Config / state ─────────────────────────────────────────
       config_{true, true, true, true, true, true},
       config_loaded_(false),
       loaded_config_path_()
@@ -38,6 +56,7 @@ void WeatherIrrigation::init(int dim)
         dim = kMinDim;
 
     load_config();
+    load_main_config_overrides();
     refresh_metadata();
 
     Problem::init(dim);
@@ -83,31 +102,75 @@ void WeatherIrrigation::build_weather_profile(int dim)
 
     seasonal_budget_target_ = 0.0;
 
-    const double stage_days = 150.0 / static_cast<double>(dim);
+    // CHANGED: was 150.0, paper says 120-day season
+    const double stage_days = 120.0 / static_cast<double>(dim);
 
     for (int i = 0; i < dim; ++i) {
         const double s = static_cast<double>(i + 1) / static_cast<double>(dim + 1);
         const double sin1 = std::sin(kPi * s);
         const double cos1 = std::cos(kPi * s);
-        const double sin2 = std::sin(2.0 * kPi * s + 0.35);
-        const double cos2 = std::cos(2.0 * kPi * s - 0.20);
+        // NOTE: sin2/cos2 with arbitrary phases removed; paper uses only sin(2πs) for tariff and phase
 
-        eto_[i] = 3.0 + 3.8 * sin1 * sin1 + 0.4 * std::max(0.0, sin2);
-        kc_[i]  = 0.45 + 0.85 * sin1;
+        // CHANGED: paper says ETo_i = 2.8 + 3.2 * sin²(πs)
+        eto_[i] = 2.8 + 3.2 * sin1 * sin1;
+
+        // CHANGED: paper says Kc_i = 0.55 + 0.65 * sin(πs)
+        kc_[i]  = 0.55 + 0.65 * sin1;
+
+        // Paper: ETc_i = ETo_i * Kc_i * Δt
         etc_[i] = eto_[i] * kc_[i] * stage_days;
-        rain_[i] = 5.0 + 24.0 * cos1 * cos1 + 6.0 * std::max(0.0, sin2);
-        ky_[i] = 0.90 + 0.70 * sin1;
-        heat_[i] = 0.15 + 0.85 * std::pow(std::max(0.0, sin1), 1.35);
-        wind_[i] = 0.25 + 0.75 * (0.5 + 0.5 * cos2);
-        smax_[i] = 26.0 + 22.0 * (0.5 + 0.5 * cos1) + 4.0 * sin2 * sin2;
-        soil_retention_[i] = 0.58 + 0.24 * (0.5 + 0.5 * cos1);
-        eff_base_[i] = clamp_value(0.72 - 0.10 * wind_[i] - 0.06 * heat_[i], 0.48, 0.76);
-        tariff_[i] = 0.62 + 0.22 * (0.5 + 0.5 * sin2) + 0.12 * heat_[i];
-        freq_[i] = 0.18 + 0.11 * (0.5 + 0.5 * cos2);
-        phase_[i] = 0.60 * kPi * s + 0.35 * sin2;
-        pref_[i] = 15.0 + 22.0 * sin1 + 4.0 * cos2;
 
-        seasonal_budget_target_ += std::max(0.0, 0.58 * (etc_[i] - 0.55 * rain_[i]));
+        // CHANGED: paper says rain_i = 8 + 18 * cos²(πs)
+        rain_[i] = 8.0 + 18.0 * cos1 * cos1;
+
+        // Paper: Ky_i = 0.85 + 0.55 * sin(πs) — uses ky_base_ and ky_amp_
+        ky_[i] = ky_base_ + ky_amp_ * sin1;
+
+        // CHANGED: paper says heat_i = 0.40 + 0.60 * sin²(πs)
+        heat_[i] = 0.40 + 0.60 * sin1 * sin1;
+
+        // CHANGED: paper says wind_i = 0.35 + 0.65 * cos²(πs)
+        wind_[i] = 0.35 + 0.65 * cos1 * cos1;
+
+        // CHANGED: paper says Smax_i = 50 + 20 * sin²(πs)
+        smax_[i] = smax_base_ + smax_amp_ * sin1 * sin1;
+
+        // CHANGED: paper says ρ_i = 0.52 + 0.18 * sin²(πs)
+        soil_retention_[i] = soil_retention_base_ + soil_retention_amp_ * sin1 * sin1;
+
+        // CHANGED: paper says η_base,i = 0.78 + 0.10 * cos(πs)
+        eff_base_[i] = 0.78 + 0.10 * cos1;
+
+        // CHANGED: paper says tariff_i = 0.90 + 0.18 * sin(2πs + 0.20)
+        tariff_[i] = 0.90 + 0.18 * std::sin(2.0 * kPi * s + 0.20);
+
+        // CHANGED: paper says freq_i = 0.22 + 0.09 * sin(πs)
+        freq_[i] = osc_freq_base_ + osc_freq_amp_ * sin1;
+
+        // CHANGED: paper says φ_i = 0.70*i + 0.30*sin(2πs)
+        phase_[i] = 0.70 * static_cast<double>(i + 1) + 0.30 * std::sin(2.0 * kPi * s);
+
+        // CHANGED: paper says μ_i = 18 + 26 * sin²(πs)
+        pref_[i] = 18.0 + 26.0 * sin1 * sin1;
+    }
+
+    // CHANGED: paper says BD = 28 * D (fixed formula, not dynamic)
+    seasonal_budget_target_ = 28.0 * static_cast<double>(dim);
+}
+
+// ── Config parsing helpers (private static) ──────────────────────
+
+static bool try_parse_double(const std::string& s, double& out)
+{
+    if (s.empty()) return false;
+    try {
+        std::size_t pos = 0;
+        double v = std::stod(s, &pos);
+        if (pos == 0) return false;
+        out = v;
+        return true;
+    } catch (...) {
+        return false;
     }
 }
 
@@ -201,24 +264,152 @@ void WeatherIrrigation::load_config()
         const std::string key = to_lower_copy(trim_copy(line.substr(0, eq)));
         const std::string value = trim_copy(line.substr(eq + 1));
 
-        if (key == "recursive_storage_enable") {
-            config_.recursive_storage_enable = parse_bool_value(value, config_.recursive_storage_enable);
+        apply_config_key(key, value);
+    }
+}
+
+void WeatherIrrigation::apply_config_key(const std::string& key, const std::string& value)
+{
+    // ── Boolean mechanism flags (ablation switches) ──────────────
+    if (key == "recursive_storage_enable") {
+        config_.recursive_storage_enable = parse_bool_value(value, config_.recursive_storage_enable);
+    }
+    else if (key == "oscillatory_efficiency_enable") {
+        config_.oscillatory_efficiency_enable = parse_bool_value(value, config_.oscillatory_efficiency_enable);
+    }
+    else if (key == "threshold_losses_enable") {
+        config_.threshold_losses_enable = parse_bool_value(value, config_.threshold_losses_enable);
+    }
+    else if (key == "multiplicative_yield_enable") {
+        config_.multiplicative_yield_enable = parse_bool_value(value, config_.multiplicative_yield_enable);
+    }
+    else if (key == "neighbor_coupling_enable") {
+        config_.neighbor_coupling_enable = parse_bool_value(value, config_.neighbor_coupling_enable);
+    }
+    else if (key == "preferred_window_enable") {
+        config_.preferred_window_enable = parse_bool_value(value, config_.preferred_window_enable);
+    }
+    // ── Group A: High-priority numerical parameters ──────────────
+    else if (key == "osc_eff_amplitude") {
+        try_parse_double(value, osc_eff_amplitude_);
+    }
+    else if (key == "resonance_weight") {
+        try_parse_double(value, resonance_weight_);
+    }
+    else if (key == "osc_freq_base") {
+        try_parse_double(value, osc_freq_base_);
+    }
+    else if (key == "osc_freq_amp") {
+        try_parse_double(value, osc_freq_amp_);
+    }
+    else if (key == "ky_base") {
+        try_parse_double(value, ky_base_);
+    }
+    else if (key == "ky_amp") {
+        try_parse_double(value, ky_amp_);
+    }
+    // ── Group B: Medium-priority numerical parameters ────────────
+    else if (key == "smax_base") {
+        try_parse_double(value, smax_base_);
+    }
+    else if (key == "smax_amp") {
+        try_parse_double(value, smax_amp_);
+    }
+    else if (key == "deficit_weight") {
+        try_parse_double(value, deficit_weight_);
+    }
+    else if (key == "seasonal_budget_weight") {
+        try_parse_double(value, seasonal_budget_weight_);
+    }
+    else if (key == "pref_weight") {
+        try_parse_double(value, pref_weight_);
+    }
+    // ── Group C: Lower-priority numerical parameters ─────────────
+    else if (key == "soil_retention_base") {
+        try_parse_double(value, soil_retention_base_);
+    }
+    else if (key == "soil_retention_amp") {
+        try_parse_double(value, soil_retention_amp_);
+    }
+    else if (key == "smoothness_weight") {
+        try_parse_double(value, smoothness_weight_);
+    }
+    else if (key == "peak_threshold") {
+        try_parse_double(value, peak_threshold_);
+    }
+}
+
+void WeatherIrrigation::load_main_config_overrides()
+{
+    std::vector<std::string> candidate_paths;
+    candidate_paths.reserve(32);
+
+    const std::vector<std::string> prefixes = {
+        "", ".", "..", "../..", "../../..",
+        "../../../..", "../../../../.."
+    };
+
+    for (const std::string& prefix : prefixes) {
+        const std::string name = "optimsolution.cfg";
+        candidate_paths.push_back(prefix.empty() ? name : join_path(prefix, name));
+    }
+
+#ifdef __FILE__
+    {
+        const std::string source_dir = dirname_copy(__FILE__);
+        if (!source_dir.empty()) {
+            candidate_paths.push_back(join_path(source_dir, "../../optimsolution.cfg"));
+            candidate_paths.push_back(join_path(source_dir, "../../../optimsolution.cfg"));
         }
-        else if (key == "oscillatory_efficiency_enable") {
-            config_.oscillatory_efficiency_enable = parse_bool_value(value, config_.oscillatory_efficiency_enable);
+    }
+#endif
+
+    std::ifstream fin;
+    for (const std::string& path : candidate_paths) {
+        fin.close();
+        fin.clear();
+        fin.open(path.c_str());
+        if (fin.is_open() && fin.good()) {
+            break;
         }
-        else if (key == "threshold_losses_enable") {
-            config_.threshold_losses_enable = parse_bool_value(value, config_.threshold_losses_enable);
+    }
+
+    if (!fin.is_open() || !fin.good()) {
+        return;
+    }
+
+    bool in_section = false;
+    std::string line;
+    while (std::getline(fin, line)) {
+        std::size_t comment_pos = line.find_first_of(";#");
+        if (comment_pos != std::string::npos) {
+            line.erase(comment_pos);
         }
-        else if (key == "multiplicative_yield_enable") {
-            config_.multiplicative_yield_enable = parse_bool_value(value, config_.multiplicative_yield_enable);
+
+        line = trim_copy(line);
+        if (line.empty()) {
+            continue;
         }
-        else if (key == "neighbor_coupling_enable") {
-            config_.neighbor_coupling_enable = parse_bool_value(value, config_.neighbor_coupling_enable);
+
+        if (line.front() == '[' && line.back() == ']') {
+            const std::string sec = to_lower_copy(trim_copy(line.substr(1, line.size() - 2)));
+            in_section = (sec == "weatherirrigation");
+            continue;
         }
-        else if (key == "preferred_window_enable") {
-            config_.preferred_window_enable = parse_bool_value(value, config_.preferred_window_enable);
+
+        if (!in_section) {
+            continue;
         }
+
+        std::size_t eq = line.find('=');
+        if (eq == std::string::npos) {
+            continue;
+        }
+
+        const std::string key   = to_lower_copy(trim_copy(line.substr(0, eq)));
+        const std::string value = trim_copy(line.substr(eq + 1));
+
+        apply_config_key(key, value);
     }
 }
 
@@ -236,17 +427,12 @@ double WeatherIrrigation::sqr(double v)
 
 std::string WeatherIrrigation::trim_copy(const std::string& s)
 {
-    std::size_t begin = 0;
-    while (begin < s.size() && std::isspace(static_cast<unsigned char>(s[begin]))) {
-        ++begin;
+    const std::size_t b = s.find_first_not_of(" \t\r\n");
+    if (b == std::string::npos) {
+        return std::string();
     }
-
-    std::size_t end = s.size();
-    while (end > begin && std::isspace(static_cast<unsigned char>(s[end - 1]))) {
-        --end;
-    }
-
-    return s.substr(begin, end - begin);
+    const std::size_t e = s.find_last_not_of(" \t\r\n");
+    return s.substr(b, e - b + 1);
 }
 
 std::string WeatherIrrigation::to_lower_copy(const std::string& s)
@@ -258,13 +444,17 @@ std::string WeatherIrrigation::to_lower_copy(const std::string& s)
     return out;
 }
 
-bool WeatherIrrigation::parse_bool_value(const std::string& value, bool default_value)
+bool WeatherIrrigation::parse_bool_value(const std::string& v, bool default_value)
 {
-    const std::string v = to_lower_copy(trim_copy(value));
+    const std::string low = to_lower_copy(trim_copy(v));
+    if (low.empty()) {
+        return default_value;
+    }
 
     if (v == "1" || v == "true" || v == "yes" || v == "on") {
         return true;
     }
+
     if (v == "0" || v == "false" || v == "no" || v == "off") {
         return false;
     }
@@ -307,7 +497,7 @@ double WeatherIrrigation::objective_value(const Vec& x) const
     double resonance_term = 0.0;
     double interaction_term = 0.0;
     double pref_term = 0.0;
-    double peak_load = 0.0;
+    double peak_term = 0.0;              // CHANGED: was peak_load (single max), now sum of penalties
     double seasonal_total = 0.0;
     double yield_signal = config_.multiplicative_yield_enable ? 1.0 : 0.0;
 
@@ -316,19 +506,26 @@ double WeatherIrrigation::objective_value(const Vec& x) const
         const double xim1 = (i > 0)     ? clamp_value(x[i - 1], 0.0, max_irrigation_) : 0.0;
         const double xip1 = (i + 1 < D) ? clamp_value(x[i + 1], 0.0, max_irrigation_) : 0.0;
 
+        // Paper: N_i = 0.60*xi + 0.25*xi-1 + 0.15*xi+1
         const double network_load = config_.neighbor_coupling_enable
                                   ? (0.60 * xi + 0.25 * xim1 + 0.15 * xip1)
                                   : xi;
-        peak_load = std::max(peak_load, network_load);
 
+        // CHANGED: paper says Ppeak = 0.035 * Σ max(0, Ni - 62)²  (sum, not single max)
+        if (config_.threshold_losses_enable) {
+            peak_term += sqr(std::max(0.0, network_load - peak_threshold_));
+        }
+
+        // Paper: η_i(x) = η_base,i * [1 - 0.22*sin²(freq*xi+φ) - 0.10*sin²(0.07*Ni+0.50*φ)]
         double eff_mult = 1.0;
         if (config_.oscillatory_efficiency_enable) {
-            eff_mult -= 0.22 * sqr(std::sin(freq_[i] * xi + phase_[i]));
+            eff_mult -= osc_eff_amplitude_ * sqr(std::sin(freq_[i] * xi + phase_[i]));
             eff_mult -= 0.10 * sqr(std::sin(0.07 * network_load + 0.50 * phase_[i]));
         }
         eff_mult = clamp_value(eff_mult, 0.45, 1.0);
         const double effective_irrigation = eff_base_[i] * eff_mult * xi;
 
+        // Paper: A_i = rain_i + Ieff_i + 0.55*S_i
         const double storage_contribution = config_.recursive_storage_enable ? (0.55 * storage) : 0.0;
         const double available = rain_[i] + effective_irrigation + storage_contribution;
         const double demand = etc_[i];
@@ -336,6 +533,7 @@ double WeatherIrrigation::objective_value(const Vec& x) const
         const double deficit = std::max(0.0, demand - available);
         const double surplus = std::max(0.0, available - demand);
 
+        // Paper: deep drainage, recharge, evaploss, storage transition
         double deep_loss = 0.0;
         double recharge = 0.0;
         double next_storage = storage;
@@ -355,6 +553,7 @@ double WeatherIrrigation::objective_value(const Vec& x) const
             }
         }
 
+        // Paper: r_i, stress_i, y_i, Y_rel
         const double ratio = (demand > 1e-12) ? (actual_et / demand) : 1.0;
         const double stress = 1.0 - ratio;
 
@@ -370,45 +569,54 @@ double WeatherIrrigation::objective_value(const Vec& x) const
             yield_signal += stage_yield;
         }
 
+        // Paper: shock_i = 1 + 0.18*heat*sin²(0.09*xi + 1.3*wind + φ)
         const double weather_shock = config_.oscillatory_efficiency_enable
                                    ? (1.0 + 0.18 * heat_[i] * sqr(std::sin(0.09 * xi + 1.3 * wind_[i] + phase_[i])))
                                    : 1.0;
+
+        // Paper: Cpump uses [1 + 0.35*sin²(0.08*xi + 0.60*φ)]
         const double pump_mod = config_.oscillatory_efficiency_enable
                               ? (1.0 + 0.35 * sqr(std::sin(0.08 * xi + 0.60 * phase_[i])))
                               : 1.0;
-        const double preferred_threshold = config_.preferred_window_enable ? (pref_[i] + 18.0) : 58.0;
-        const double runoff_trigger = (config_.neighbor_coupling_enable && config_.threshold_losses_enable)
-                                    ? std::max(0.0, xi + 0.55 * xim1 - preferred_threshold)
-                                    : 0.0;
 
+        // Paper: Cwater = Σ tariff_i * xi
         water_cost += tariff_[i] * xi;
+
+        // Paper: Cpump = Σ 0.0045 * Ni² * [1 + 0.35*sin²(...)]
         pump_cost += 0.0045 * sqr(network_load) * pump_mod;
-        deficit_term += (0.12 + 0.06 * heat_[i]) * sqr(deficit) * weather_shock;
+
+        // Paper: Pdef = Σ (0.12 + 0.06*heat) * deficit² * shock
+        deficit_term += (deficit_weight_ + 0.06 * heat_[i]) * sqr(deficit) * weather_shock;
+
+        // Paper: Pexc = Σ (0.05 + 0.05*wind) * (deep² + 0.30*surplus²)
         excess_term += (0.05 + 0.05 * wind_[i]) * (sqr(deep_loss) + 0.30 * sqr(surplus));
 
+        // Paper: Pres = Σ 8.0*(1+0.70*heat)*sin²(freq*xi+φ)
         if (config_.oscillatory_efficiency_enable) {
-            resonance_term += 8.0 * (1.0 + 0.70 * heat_[i]) * sqr(std::sin(freq_[i] * xi + phase_[i]));
+            resonance_term += resonance_weight_ * (1.0 + 0.70 * heat_[i]) * sqr(std::sin(freq_[i] * xi + phase_[i]));
         }
 
-        if (config_.neighbor_coupling_enable) {
-            const double interaction_mod = config_.oscillatory_efficiency_enable
-                                         ? (1.0 + 0.25 * sqr(std::sin(0.15 * xi - 0.11 * xim1 + phase_[i])))
-                                         : 1.0;
-            interaction_term += (0.08 + 0.04 * wind_[i]) * sqr(runoff_trigger) * interaction_mod;
-
-            if (i > 0) {
-                const double dx = xi - xim1;
-                smoothness_term += (0.06 + 0.02 * wind_[i]) * sqr(dx);
-                interaction_term += 0.025 * xi * xim1;
-            }
+        // CHANGED: Paper: Pint = Σ_{i>=2} [0.018*max(0, xi+0.55*xi-1-58)² + 0.025*xi*xi-1]
+        if (config_.neighbor_coupling_enable && i > 0) {
+            interaction_term += 0.018 * sqr(std::max(0.0, xi + 0.55 * xim1 - 58.0));
+            interaction_term += 0.025 * xi * xim1;
         }
 
+        // Paper: Psmooth = Σ_{i>=2} (0.06 + 0.02*wind) * (xi - xi-1)²
+        if (i > 0) {
+            const double dx = xi - xim1;
+            smoothness_term += (smoothness_weight_ + 0.02 * wind_[i]) * sqr(dx);
+        }
+
+        // CHANGED: Paper: Pwin = Σ (0.014 + 0.010*sin²(πs)) * (xi-μi)² * [1+0.40*sin²(0.06*xi+φ)]
         if (config_.preferred_window_enable) {
+            const double si = static_cast<double>(i + 1) / static_cast<double>(D + 1);
+            const double pwin_coeff = pref_weight_ + 0.010 * sqr(std::sin(kPi * si));
             const double pref_dev = xi - pref_[i];
             const double pref_mod = config_.oscillatory_efficiency_enable
-                                  ? (1.0 + 0.35 * sqr(std::sin(0.12 * pref_dev + 0.5 * phase_[i])))
+                                  ? (1.0 + 0.40 * sqr(std::sin(0.06 * xi + phase_[i])))
                                   : 1.0;
-            pref_term += 0.015 * (1.0 + wind_[i]) * sqr(pref_dev) * pref_mod;
+            pref_term += pwin_coeff * sqr(pref_dev) * pref_mod;
         }
 
         seasonal_total += xi;
@@ -419,18 +627,20 @@ double WeatherIrrigation::objective_value(const Vec& x) const
         yield_signal /= static_cast<double>(D);
     }
 
+    // CHANGED: Paper: Pterm = 1.2 * (S_{D+1} - 0.45*Smax_D)²
     double terminal_storage_penalty = 0.0;
     if (config_.recursive_storage_enable) {
-        const double terminal_target = 0.58 * smax_.back();
+        const double terminal_target = 0.45 * smax_.back();    // CHANGED: was 0.58
         terminal_storage_penalty = terminal_storage_weight_ * sqr(storage - terminal_target);
     }
 
-    const double over_budget = std::max(0.0, seasonal_total - seasonal_budget_target_);
-    const double under_budget = std::max(0.0, 0.72 * seasonal_budget_target_ - seasonal_total);
-    const double seasonal_budget_penalty = seasonal_budget_weight_ * (sqr(over_budget) + 0.45 * sqr(under_budget));
+    // CHANGED: Paper: Pbudget = 0.010 * (Σxi - BD)²  (symmetric)
+    const double budget_dev = seasonal_total - seasonal_budget_target_;
+    const double seasonal_budget_penalty = seasonal_budget_weight_ * sqr(budget_dev);
 
+    // CHANGED: Paper: Ppeak = 0.035 * Σ max(0, Ni - 62)²  (peak_term already accumulated)
     const double peak_penalty = config_.threshold_losses_enable
-                              ? (peak_weight_ * sqr(std::max(0.0, peak_load - 34.0)))
+                              ? (peak_weight_ * peak_term)
                               : 0.0;
 
     return water_cost
