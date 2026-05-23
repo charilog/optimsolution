@@ -11,7 +11,7 @@ public:
     EGCO() = default;
     ~EGCO() override = default;
 	std::string methodShortName() const override { return "egco"; }
-	std::string methodFullName()  const override { return "Eel and Grouper Optimizer(EGCO)"; }
+	std::string methodFullName()  const override { return "Eel and Grouper Optimizer"; }
 
     // Method settings from [egco]
     void configure(const MethodConfig& mc) override {

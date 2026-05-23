@@ -21,7 +21,7 @@ public:
     ~EO() override = default;
 
     std::string methodShortName() const override { return "EO"; }
-    std::string methodFullName()  const override { return "Equilibrium Optimizer (EO)"; }
+    std::string methodFullName()  const override { return "Equilibrium Optimizer"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

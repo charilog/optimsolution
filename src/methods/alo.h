@@ -17,7 +17,7 @@ public:
     ~ALO() override = default;
 
     std::string methodShortName() const override { return "ALO"; }
-    std::string methodFullName()  const override { return "Ant Lion Optimizer (ALO)"; }
+    std::string methodFullName()  const override { return "Ant Lion Optimizer"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

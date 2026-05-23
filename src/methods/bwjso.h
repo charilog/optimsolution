@@ -15,7 +15,7 @@ public:
     BWJSO() = default;
     ~BWJSO() override = default;
     std::string methodShortName() const override { return "bwjso"; }
-    std::string methodFullName()  const override { return "Best-Worst corrected jSO (BWJSO)"; }
+    std::string methodFullName()  const override { return "Best-Worst corrected jSO"; }
 
     void configure(const MethodConfig& mc) override;
     void init() override;

@@ -34,7 +34,7 @@ public:
     ~GA() override = default;
 
     std::string methodShortName() const override { return "ga"; }
-    std::string methodFullName()  const override { return "Genetic Algorithm (GA)"; }
+    std::string methodFullName()  const override { return "Genetic Algorithm"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

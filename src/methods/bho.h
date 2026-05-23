@@ -14,7 +14,7 @@ public:
     BHO() = default;
     ~BHO() override = default;
 	std::string methodShortName() const override { return "bho"; }
-	std::string methodFullName()  const override { return "BioHealing Optimization (BHO)"; }
+	std::string methodFullName()  const override { return "BioHealing Optimization"; }
 
     // Optional name
     std::string name() const { return "bho"; }

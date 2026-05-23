@@ -15,8 +15,8 @@ class ACO : public Optimizer {
 public:
     ACO() = default;
     ~ACO() override = default;
-	std::string methodShortName() const override { return "aco"; }
-	std::string methodFullName()  const override { return "Ant Colony Optimization (ACO)"; }
+    std::string methodShortName() const override { return "aco"; }
+    std::string methodFullName()  const override { return "Ant Colony Optimization"; }
 
     // Final local-search settings from [global]
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
@@ -55,9 +55,9 @@ protected:
 private:
     // helpers
     double eval(const std::vector<double>& x) { return prob_->evaluate(x); }
-    void ensureBounds(std::vector<double>& x);
+    void   ensureBounds(std::vector<double>& x);
     double valueAtLevel(int j, int l) const;
-    int    sampleLevel(int j, double gbest_j);
+    int    sampleLevel(int j);
     void   evaporate();
     void   deposit(const std::vector<int>& order);
 
@@ -68,16 +68,16 @@ private:
     // grid levels per dimension
     int    levels_{16};
     double alpha_{1.0};     // pheromone exponent
-    double beta_{2.0};      // heuristic exponent
+    double beta_{2.0};      // heuristic exponent (unused when eta=1; kept for future use)
     double rho_{0.1};       // evaporation  (0<rho<=1)
-    double Q_{1.0};         // deposit intensity (Q/f)
+    double Q_{1.0};         // deposit intensity (rank-based: Q / rank)
     int    deposit_top_{5}; // #top ants depositing
     double tau0_{1.0};      // initial pheromone
     double tau_min_{1e-6};
     double tau_max_{1e6};
 
     // working buffers per iteration
-    std::vector<std::vector<double>> X_;  // candidate solutions
+    std::vector<std::vector<double>> X_;  // candidate solutions  (always replaced each iter)
     std::vector<double>              FX_; // fitnesses
 
     // in-run local

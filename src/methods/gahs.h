@@ -16,7 +16,7 @@ public:
     ~GAHS() override = default;
 
     std::string methodShortName() const override { return "gahs"; }
-    std::string methodFullName()  const override { return "Genetic Algorithm with Harmony Search (GAHS)"; }
+    std::string methodFullName()  const override { return "Genetic Algorithm with Harmony Search"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

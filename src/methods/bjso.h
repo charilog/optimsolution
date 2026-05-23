@@ -15,7 +15,7 @@ public:
     BJSO() = default;
     ~BJSO() override = default;
     std::string methodShortName() const override { return "bjso"; }
-    std::string methodFullName()  const override { return "Band-guided jSO (BJSO)"; }
+    std::string methodFullName()  const override { return "Band-guided jSO"; }
 
     void configure(const MethodConfig& mc) override;
     void init() override;

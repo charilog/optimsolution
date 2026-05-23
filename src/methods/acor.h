@@ -15,7 +15,7 @@ public:
     ACOR() = default;
     ~ACOR() override = default;
 	std::string methodShortName() const override { return "acor"; }
-	std::string methodFullName()  const override { return "Ant Colony Optimization for Continuous Domains (ACOR)"; }
+	std::string methodFullName()  const override { return "Ant Colony Optimization for Continuous Domains"; }
 
     // Enablement/method of final local refinement from [global]
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {

@@ -18,7 +18,7 @@ public:
     CMAES() = default;
     ~CMAES() override = default;
 	std::string methodShortName() const override { return "cmaes"; }
-	std::string methodFullName()  const override { return "Covariance Matrix Adaptation Evolution Strategy (CMA-ES)"; }
+	std::string methodFullName()  const override { return "Covariance Matrix Adaptation Evolution Strategy"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         Optimizer::setEndLocalFromGlobal(enable, method);

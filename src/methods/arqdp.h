@@ -31,7 +31,7 @@ public:
     ~ARQDP() override = default;
 
     std::string methodShortName() const override { return "arqedp"; }
-    std::string methodFullName()  const override { return "ARQ Directional Prediction + Far-Horizon Lookahead + Best-First Attack (ARQDP-v10)"; }
+    std::string methodFullName()  const override { return "ARQ Directional Prediction + Far-Horizon Lookahead + Best-First Attack"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

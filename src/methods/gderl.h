@@ -29,7 +29,7 @@ public:
 
     // Full descriptive name for logs / summaries
     std::string methodFullName() const override {
-        return "Golden Differential Evolution with Reinforcement Learning (gDE-rl)";
+        return "Golden Differential Evolution with Reinforcement Learning";
     }
 
     void configure(const MethodConfig& mc) override;

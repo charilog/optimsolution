@@ -18,7 +18,7 @@ public:
     ~GSA() override = default;
 
     std::string methodShortName() const override { return "GSA"; }
-    std::string methodFullName()  const override { return "Gravitational Search Algorithm (GSA)"; }
+    std::string methodFullName()  const override { return "Gravitational Search Algorithm"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

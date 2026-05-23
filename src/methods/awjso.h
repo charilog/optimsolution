@@ -27,7 +27,7 @@ public:
     AWJSO() = default;
     ~AWJSO() override = default;
     std::string methodShortName() const override { return "awjso"; }
-    std::string methodFullName()  const override { return "Adaptive Weight jSO (awjso)"; }
+    std::string methodFullName()  const override { return "Adaptive Weight jSO"; }
 
     void configure(const MethodConfig& mc) override;
     void init() override;

@@ -385,7 +385,9 @@ void CMAES::one_iteration()
     for (int j = 0; j < D; ++j) norm_p_sigma += p_sigma_[j] * p_sigma_[j];
     norm_p_sigma = std::sqrt(norm_p_sigma);
 
-    sigma_ *= std::exp( (c_sigma_ / d_sigma_) * (norm_p_sigma / chiN_ - 1.0) );
+    // NOTE: sigma update is deferred to AFTER the covariance matrix update,
+    // per Hansen's CMA-ES tutorial (arXiv:1604.00772).  The rank-mu term
+    // in the C update must divide by the OLD sigma (the one used for sampling).
 
     // --- evolution path for C ---
     double ps_norm_corr = norm_p_sigma /
@@ -398,7 +400,7 @@ void CMAES::one_iteration()
         p_c_[j] = (1.0 - c_c_) * p_c_[j] + h_sigma * cc_factor * y_step[j];
     }
 
-    // --- covariance update ---
+    // --- covariance update (uses OLD sigma_, before step-size adaptation) ---
     Mat C_new = C_;
 
     // Implementation note.
@@ -413,7 +415,8 @@ void CMAES::one_iteration()
     // rank-one term: + c1 p_c p_c^T
     symOuterAdd(C_new, p_c_, c1_);
 
-    // Implementation note.
+    // rank-mu term: + cmu * sum_i( w_i * y_i * y_i^T )
+    // y_i = (x_i:lambda - m_old) / sigma   (OLD sigma, before adaptation)
     for (int i = 0; i < mu_; ++i) {
         int k = idx[i];
         Vec y_i(D, 0.0);
@@ -424,6 +427,10 @@ void CMAES::one_iteration()
     }
 
     C_.swap(C_new);
+
+    // --- step-size update (must be LAST, after C update) ---
+    // Reference: Hansen tutorial, Section 'The CMA-ES', update order.
+    sigma_ *= std::exp( (c_sigma_ / d_sigma_) * (norm_p_sigma / chiN_ - 1.0) );
 
     // In-run local search: optionally apply to current best
     if (!local_method_.empty() && local_rate_ > 0.0 && prob_->calls() < max_evals_) {

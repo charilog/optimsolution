@@ -11,7 +11,7 @@ public:
     GWO() = default;
     ~GWO() override = default;
 	std::string methodShortName() const override { return "gwo"; }
-	std::string methodFullName()  const override { return "Grey Wolf Optimizer (GWO)"; }
+	std::string methodFullName()  const override { return "Grey Wolf Optimizer"; }
 
     // Settings from [gwo]
     void configure(const MethodConfig& mc) override {

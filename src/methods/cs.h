@@ -17,7 +17,7 @@ public:
     ~CS() override = default;
 
     std::string methodShortName() const override { return "CS"; }
-    std::string methodFullName()  const override { return "Cuckoo Search (CS)"; }
+    std::string methodFullName()  const override { return "Cuckoo Search"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

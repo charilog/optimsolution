@@ -29,7 +29,7 @@ public:
     ~CLPSO() override = default;
 
     std::string methodShortName() const override { return "clpso"; }
-    std::string methodFullName()  const override { return "Comprehensive Learning Particle Swarm Optimization (CLPSO)"; }
+    std::string methodFullName()  const override { return "Comprehensive Learning Particle Swarm Optimization"; }
 
     void init() override;
     void one_iteration() override;

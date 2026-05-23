@@ -11,7 +11,7 @@ public:
     GAO() = default;
     ~GAO() override = default;
 	std::string methodShortName() const override { return "gao"; }
-	std::string methodFullName()  const override { return "Giant Armadillo Optimizer (GAO)"; }
+	std::string methodFullName()  const override { return "Giant Armadillo Optimizer"; }
 
     void configure(const MethodConfig& mc) override {
         int po = mc.getInt("population", pop_);

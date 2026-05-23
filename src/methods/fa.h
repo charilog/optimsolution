@@ -16,7 +16,7 @@ public:
     ~FA() override = default;
 
     std::string methodShortName() const override { return "FA"; }
-    std::string methodFullName()  const override { return "Firefly Algorithm (FA)"; }
+    std::string methodFullName()  const override { return "Firefly Algorithm"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

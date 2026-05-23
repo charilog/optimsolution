@@ -13,9 +13,7 @@ public:
     ~FUSE() override = default;
 
     std::string methodShortName() const override { return "fuse"; }
-    std::string methodFullName()  const override {
-        return "Fusion Search Ensemble (FUSE)";
-    }
+    std::string methodFullName()  const override {return "Fusion Search Ensemble";}
 
     void configure(const MethodConfig &mc) override;
 

@@ -19,7 +19,7 @@ public:
     EA4Eig() = default;
     ~EA4Eig() override = default;
 	std::string methodShortName() const override { return "ea4eig"; }
-	std::string methodFullName()  const override { return "Evolutionary Algorithms with Eigen crossover (EA4eig)"; }
+	std::string methodFullName()  const override { return "Evolutionary Algorithms with Eigen crossover"; }
 
     std::string name() const { return "ea4eig"; }
 

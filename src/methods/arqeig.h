@@ -23,7 +23,7 @@ public:
     ~ARQEig() override = default;
 
     std::string methodShortName() const override { return "arqeig"; }
-    std::string methodFullName()  const override { return "ARQ with Eigen-like coordinate learning (ARQEig)"; }
+    std::string methodFullName()  const override { return "ARQ with Eigen-like coordinate learning"; }
 
     // Retrieves global end_local_refine / end_local_method (as in EA4Eig)
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {

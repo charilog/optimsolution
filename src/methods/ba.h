@@ -16,7 +16,7 @@ public:
     ~BA() override = default;
 
     std::string methodShortName() const override { return "BA"; }
-    std::string methodFullName()  const override { return "Bat Algorithm (BA)"; }
+    std::string methodFullName()  const override { return "Bat Algorithm"; }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;

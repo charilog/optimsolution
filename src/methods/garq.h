@@ -26,7 +26,7 @@ public:
     std::string methodShortName() const override { return "garq"; }
 
     std::string methodFullName() const override {
-        return "Golden ARQ with Reinforcement Learning (GARQ)";
+        return "Golden ARQ with Reinforcement Learning";
     }
 
     void configure(const MethodConfig& mc) override;

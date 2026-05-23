@@ -25,7 +25,7 @@ public:
 
     std::string methodShortName() const override { return "arqeigrl"; }
     std::string methodFullName() const override {
-        return "Dual-zone DE with local RL (ARQEigRL)";
+        return "Dual-zone DE with local RL";
     }
 
     void configure(const MethodConfig& mc) override;

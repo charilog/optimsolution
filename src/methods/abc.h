@@ -13,7 +13,7 @@ public:
     ABC() = default;
     ~ABC() override = default;
 	std::string methodShortName() const override { return "abc"; }
-	std::string methodFullName()  const override { return "Artificial Bee Colony (ABC)"; }
+	std::string methodFullName()  const override { return "Artificial Bee Colony"; }
 	
     // Final local refinement from [global]
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
