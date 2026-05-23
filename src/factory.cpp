@@ -92,11 +92,14 @@
 #include "problems/cec2022_composition6.h"
 #include "problems/cec2022_composition7.h"
 
-// methods
+#include "problems/weatherirrigation.h"
+#include "problems/smartportenergy.h"
+#include "problems/datacentercooling.h"// methods
 #include "methods/arq.h"
 #include "methods/de.h"
 #include "methods/pso.h"
 #include "methods/ga.h" 
+#include "methods/aco.h"
 #include "methods/acor.h"
 #include "methods/sa.h"
 #include "methods/woa.h"
@@ -151,6 +154,10 @@
 #include "methods/bwjso.h"
 #include "methods/bjso.h"
 #include "methods/nlshadelbc.h"
+#include "methods/arq3.h"
+#include "methods/hades.h"
+#include "methods/lracmaes.h"
+#include "methods/lmcmaes.h"
 
 
 
@@ -254,8 +261,10 @@ std::unique_ptr<Problem> makeProblem(const std::string& raw) {
 	if (name == "cec2022composition6") return std::make_unique<optimsolution::CEC2022Composition6>();
 	if (name == "cec2022composition7") return std::make_unique<optimsolution::CEC2022Composition7>();
 	
-	
-    return nullptr;
+	if (name == "weatherirrigation") return std::make_unique<optimsolution::WeatherIrrigation>();	
+	if (name == "smartportenergy") return std::make_unique<optimsolution::SmartPortEnergy>();	
+	if (name == "datacentercooling") return std::make_unique<optimsolution::DataCenterCooling>();		
+	    return nullptr;
 }
 
 std::unique_ptr<Optimizer> makeMethod(const std::string& raw) {
@@ -266,6 +275,7 @@ std::unique_ptr<Optimizer> makeMethod(const std::string& raw) {
 	if (name == "pso")   return std::unique_ptr<Optimizer>(new PSO());
 	if (name == "ga")    return std::unique_ptr<Optimizer>(new GA());
     if (name == "gd")    return std::unique_ptr<Optimizer>(new GD());
+	if (name == "aco")  return std::make_unique<ACO>();	
 	if (name == "acor")  return std::make_unique<ACOR>();
 	if (name == "sa")    return std::make_unique<SA>();
 	if (name == "woa") 	 return std::make_unique<WOA>();
@@ -320,7 +330,10 @@ std::unique_ptr<Optimizer> makeMethod(const std::string& raw) {
 	if (name == "bwjso") return std::make_unique<optimsolution::BWJSO>();
 	if (name == "bjso") return std::make_unique<optimsolution::BJSO>();	
 	if (name == "nlshadelbc") return std::make_unique<optimsolution::NLSHADELBC>();	
-	
+	if (name == "arq3") return std::make_unique<optimsolution::ARQ3>();	
+	if (name == "hades") return std::make_unique<optimsolution::HADES>();	
+	if (name == "lracmaes") return std::make_unique<optimsolution::LRACMAES>();
+	if (name == "lmcmaes") return std::make_unique<optimsolution::LMCMAES>();
 	
     if (name == "nm")    return std::unique_ptr<Optimizer>(new NM());
     if (name == "lbfgs") return std::unique_ptr<Optimizer>(new LBFGS());
@@ -334,7 +347,7 @@ std::vector<std::string> listProblemNames() {
     // NOTE: keep this list in sync with makeProblem().
     // Returned identifiers are short names accepted by the CLI/GUI.
     return {
-        "cec2022composition7","cec2022composition6","cec2022composition2","cec2022composition1","cec2022hybrid6","cec2022hybrid10","cec2022hybrid2","cec2022levy", "cec2022noncontinuousrastrigin","cec2022schafferf7","cec2022rosenbrock","cec2022zakharov","rastrigin","rosenbrock","potential","ackley","sphere","griewank","levy",
+        "datacentercooling","smartportenergy","weatherirrigation","cec2022composition7","cec2022composition6","cec2022composition2","cec2022composition1","cec2022hybrid6","cec2022hybrid10","cec2022hybrid2","cec2022levy", "cec2022noncontinuousrastrigin","cec2022schafferf7","cec2022rosenbrock","cec2022zakharov","rastrigin","rosenbrock","potential","ackley","sphere","griewank","levy",
         "attractivesector","bohachevsky1","bohachevsky2","bohachevsky3","branin","camel",
         "cigar","cosinemixture","differentpowers","diracproblem","easom","ellipsoidal",
         "equalmaxima","expotential","goldstein","griewankrosenbrock","hansen","hartmann3",
@@ -346,14 +359,13 @@ std::vector<std::string> listProblemNames() {
         "michalewicz","ofdmpower","polyphase","portfoliomv","schaffer","schwefel",
         "tandem","tersoffc","tersoffb","tnep","transmissionpricing","vibratingplatform",
         "weierstrass","wirelesscoverage","zakharov","sinusoidal","gascycle",
-        "gkls250","gkls350","gkls2100"
-    };
+        "gkls250","gkls350","gkls2100"};
 }
 
 std::vector<std::string> listMethodNames() {
     // NOTE: keep this list in sync with makeMethod().
     return {
-        "nlshadelbc","bjso","bwjso","gahs","awjso","sfcde","ude", "mjso","ujso","arq","arq2","de","pso","ga","gd","acor","sa","woa","mewoa","abc","gwo",
+        "lmcmaes","lracmaes","hades","arq3","nlshadelbc","bjso","bwjso","gahs","awjso","sfcde","ude", "mjso","ujso","arq","arq2","de","pso","ga","gd","aco","acor","sa","woa","mewoa","abc","gwo",
         "egco","gao","ppso","pde","pga","psioa","sioa","sao","psao","bho","tridentde",
         "mlshaderl","jso","ea4eig","ude3","jde","sade","cmaes","clpso","tlbo","jaya","sca","fa","ba","hs","cs","so","gsa","alo","hho","mfo","mvo","sma","mpa","eo","wca","kh","hba", "nm","lbfgs","bfgs"
     };
