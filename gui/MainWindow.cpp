@@ -3000,7 +3000,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   populateSettingsTables();
   CrashLog::append("MainWindow: settings tables populated.");
 
-  setWindowTitle("OptimSolution by OptimTeam | v51 | charilog");
+  setWindowTitle("OptimSolution by OptimTeam | v50 | charilog");
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -3102,18 +3102,9 @@ void MainWindow::buildUi() {
   selectionBox_ = new QGroupBox("Selection", central);
   selectionBox_->setObjectName("selectionBox");
   selectionBox_->setProperty("focused", false);
-  selectionBox_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   auto* topBox = selectionBox_;
-  // Outer vertical layout: form (fixed) on top, batchPanel_ (expanding) below.
-  auto* topBoxOuterLay = new QVBoxLayout(topBox);
-  topBoxOuterLay->setContentsMargins(6, 6, 6, 6);
-  topBoxOuterLay->setSpacing(0);
-  // The form holds the fixed controls (run mode, method, problem, dim).
-  auto* formContainer = new QWidget(topBox);
-  auto* form = new QFormLayout(formContainer);
-  form->setContentsMargins(0, 0, 0, 0);
+  auto* form = new QFormLayout(topBox);
   selectionForm_ = form;
-  topBoxOuterLay->addWidget(formContainer, 0);
 
   methodBox_ = new QComboBox(topBox);
   methodBox_->setEditable(true);
@@ -3189,7 +3180,6 @@ void MainWindow::buildUi() {
 
 // Batch selection panel (shown only when Run mode is Batch).
 batchPanel_ = new QWidget(topBox);
-batchPanel_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 auto* batchLay = new QVBoxLayout(batchPanel_);
 batchLay->setContentsMargins(0, 0, 0, 0);
 batchLay->setSpacing(6);
@@ -3388,9 +3378,7 @@ batchSettingsLay->addRow(batchStatsNoteLbl);
 
 batchLay->addWidget(batchSettingsBox, 0);
 
-// batchPanel_ is added to the outer vertical layout with stretch so it
-// fills all available vertical space when the Selection area is maximized.
-topBoxOuterLay->addWidget(batchPanel_, 1);
+form->addRow(batchPanel_);
 
   // ── Sensitivity problem panel ──────────────────────────────────────────
   // Shown only in Sensitivity run mode. Lets the user pick multiple
@@ -4036,11 +4024,8 @@ outputMaxBtn_->setFlat(true);
     ed->show();
   });
 
-  wizardBox_ = wizardBox;
-
   // Bottom split: Output (left, wide) | Code Wizard (right, narrow)
   auto* bottomSplit = new QSplitter(Qt::Horizontal, central);
-  bottomSplit_ = bottomSplit;
   bottomSplit->setChildrenCollapsible(false);
   bottomSplit->addWidget(outBox);
   bottomSplit->addWidget(wizardBox);
@@ -4801,22 +4786,16 @@ void MainWindow::toggleRegionFocus(FocusArea area) {
   if (area == FocusArea::Selection) {
     if (selectionSettingsSplitter_) selectionSettingsSplitter_->setVisible(true);
     if (selectionBox_) selectionBox_->setVisible(true);
-    if (settingsBox_)  settingsBox_->setVisible(false);
-    if (outputBox_)    outputBox_->setVisible(false);
-    if (wizardBox_)    wizardBox_->setVisible(false);
-    if (bottomSplit_)  bottomSplit_->setVisible(false);
+    if (settingsBox_) settingsBox_->setVisible(false);
+    if (outputBox_) outputBox_->setVisible(false);
   } else if (area == FocusArea::Settings) {
     if (selectionSettingsSplitter_) selectionSettingsSplitter_->setVisible(true);
     if (selectionBox_) selectionBox_->setVisible(false);
-    if (settingsBox_)  settingsBox_->setVisible(true);
-    if (outputBox_)    outputBox_->setVisible(false);
-    if (wizardBox_)    wizardBox_->setVisible(false);
-    if (bottomSplit_)  bottomSplit_->setVisible(false);
+    if (settingsBox_) settingsBox_->setVisible(true);
+    if (outputBox_) outputBox_->setVisible(false);
   } else if (area == FocusArea::Output) {
     if (selectionSettingsSplitter_) selectionSettingsSplitter_->setVisible(false);
-    if (outputBox_)    outputBox_->setVisible(true);
-    if (wizardBox_)    wizardBox_->setVisible(false);
-    if (bottomSplit_)  bottomSplit_->setVisible(true);
+    if (outputBox_) outputBox_->setVisible(true);
   }
 
   updateRegionFocusStyling();
@@ -4827,10 +4806,8 @@ void MainWindow::restoreRegionLayout() {
 
   if (selectionSettingsSplitter_) selectionSettingsSplitter_->setVisible(true);
   if (selectionBox_) selectionBox_->setVisible(true);
-  if (settingsBox_)  settingsBox_->setVisible(true);
-  if (outputBox_)    outputBox_->setVisible(true);
-  if (wizardBox_)    wizardBox_->setVisible(true);
-  if (bottomSplit_)  bottomSplit_->setVisible(true);
+  if (settingsBox_) settingsBox_->setVisible(true);
+  if (outputBox_) outputBox_->setVisible(true);
 
   if (selectionSettingsSplitter_ && !selectionSettingsSplitterSizes_.isEmpty() && selectionSettingsSplitterSizes_.size() >= 2) {
     selectionSettingsSplitter_->setSizes(selectionSettingsSplitterSizes_);
@@ -6284,9 +6261,6 @@ void MainWindow::renderSensitivityForParam(int tabIndex, const QString& paramNam
 
   auto findCol = [&](const QStringList& candidates) -> int {
     for (const auto& c : candidates) {
-      const int idx = headers.indexOf(c, 0, Qt::CaseInsensitive);
-      if (idx >= 0) return idx;
-      // also try lower-case match against normalized headers
       for (int i = 0; i < headers.size(); ++i) {
         if (headers[i].trimmed().toLower() == c.trimmed().toLower()) return i;
       }
