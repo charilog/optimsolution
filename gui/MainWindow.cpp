@@ -3000,7 +3000,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   populateSettingsTables();
   CrashLog::append("MainWindow: settings tables populated.");
 
-  setWindowTitle("OptimSolution by OptimTeam | v50 | charilog");
+  setWindowTitle("OptimSolution v51");
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -3102,9 +3102,16 @@ void MainWindow::buildUi() {
   selectionBox_ = new QGroupBox("Selection", central);
   selectionBox_->setObjectName("selectionBox");
   selectionBox_->setProperty("focused", false);
+  selectionBox_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   auto* topBox = selectionBox_;
-  auto* form = new QFormLayout(topBox);
+  auto* topBoxOuterLay = new QVBoxLayout(topBox);
+  topBoxOuterLay->setContentsMargins(6, 6, 6, 6);
+  topBoxOuterLay->setSpacing(0);
+  auto* formContainer = new QWidget(topBox);
+  auto* form = new QFormLayout(formContainer);
+  form->setContentsMargins(0, 0, 0, 0);
   selectionForm_ = form;
+  topBoxOuterLay->addWidget(formContainer, 0);
 
   methodBox_ = new QComboBox(topBox);
   methodBox_->setEditable(true);
@@ -3170,8 +3177,8 @@ void MainWindow::buildUi() {
   runModeBox_ = new QComboBox(topBox);
   runModeBox_->addItem("Single run", 0);
   runModeBox_->addItem("Batch run (selected methods/problems)", 1);
-  runModeBox_->addItem("Sensitivity run (parameter sensitivity analysis)", 2);
-  runModeBox_->addItem("Problem sensitivity (problem parameter analysis)", 3);
+  runModeBox_->addItem("Sensitivity analysis of method parameters", 2);
+  runModeBox_->addItem("Sensitivity analysis of problem parameters", 3);
   form->addRow("Run mode", runModeBox_);
 
   form->addRow("Optimization method", methodBox_);
@@ -3180,6 +3187,7 @@ void MainWindow::buildUi() {
 
 // Batch selection panel (shown only when Run mode is Batch).
 batchPanel_ = new QWidget(topBox);
+batchPanel_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 auto* batchLay = new QVBoxLayout(batchPanel_);
 batchLay->setContentsMargins(0, 0, 0, 0);
 batchLay->setSpacing(6);
@@ -3378,7 +3386,9 @@ batchSettingsLay->addRow(batchStatsNoteLbl);
 
 batchLay->addWidget(batchSettingsBox, 0);
 
-form->addRow(batchPanel_);
+// batchPanel_ goes into the outer expanding layout (not the form) so it
+// fills all available vertical space when the Selection area is maximized.
+topBoxOuterLay->addWidget(batchPanel_, 1);
 
   // ── Sensitivity problem panel ──────────────────────────────────────────
   // Shown only in Sensitivity run mode. Lets the user pick multiple
@@ -3962,6 +3972,7 @@ outputMaxBtn_->setFlat(true);
   outLay->addWidget(outputTabs_);
   // ── Code Wizard panel (right of Output) ──────────────────────────
   auto* wizardBox = new QGroupBox("Code Wizard", central);
+  wizardBox_ = wizardBox;
   wizardBox->setObjectName("wizardBox");
   auto* wizLay = new QVBoxLayout(wizardBox);
   wizLay->setSpacing(8);
@@ -4026,6 +4037,7 @@ outputMaxBtn_->setFlat(true);
 
   // Bottom split: Output (left, wide) | Code Wizard (right, narrow)
   auto* bottomSplit = new QSplitter(Qt::Horizontal, central);
+  bottomSplit_ = bottomSplit;
   bottomSplit->setChildrenCollapsible(false);
   bottomSplit->addWidget(outBox);
   bottomSplit->addWidget(wizardBox);
@@ -4039,7 +4051,7 @@ outputMaxBtn_->setFlat(true);
   applyRegionStyling();
   updateRegionFocusStyling();
 
-  statusBar()->showMessage("Ready");
+  statusBar()->showMessage("OptimSolution by OptimTeam");
 
   // connections
   connect(refreshBtn_, &QPushButton::clicked, this, &MainWindow::onRefreshFactory);
@@ -4786,16 +4798,22 @@ void MainWindow::toggleRegionFocus(FocusArea area) {
   if (area == FocusArea::Selection) {
     if (selectionSettingsSplitter_) selectionSettingsSplitter_->setVisible(true);
     if (selectionBox_) selectionBox_->setVisible(true);
-    if (settingsBox_) settingsBox_->setVisible(false);
-    if (outputBox_) outputBox_->setVisible(false);
+    if (settingsBox_)  settingsBox_->setVisible(false);
+    if (outputBox_)    outputBox_->setVisible(false);
+    if (wizardBox_)    wizardBox_->setVisible(false);
+    if (bottomSplit_)  bottomSplit_->setVisible(false);
   } else if (area == FocusArea::Settings) {
     if (selectionSettingsSplitter_) selectionSettingsSplitter_->setVisible(true);
     if (selectionBox_) selectionBox_->setVisible(false);
-    if (settingsBox_) settingsBox_->setVisible(true);
-    if (outputBox_) outputBox_->setVisible(false);
+    if (settingsBox_)  settingsBox_->setVisible(true);
+    if (outputBox_)    outputBox_->setVisible(false);
+    if (wizardBox_)    wizardBox_->setVisible(false);
+    if (bottomSplit_)  bottomSplit_->setVisible(false);
   } else if (area == FocusArea::Output) {
     if (selectionSettingsSplitter_) selectionSettingsSplitter_->setVisible(false);
-    if (outputBox_) outputBox_->setVisible(true);
+    if (outputBox_)    outputBox_->setVisible(true);
+    if (wizardBox_)    wizardBox_->setVisible(false);
+    if (bottomSplit_)  bottomSplit_->setVisible(true);
   }
 
   updateRegionFocusStyling();
@@ -4806,8 +4824,10 @@ void MainWindow::restoreRegionLayout() {
 
   if (selectionSettingsSplitter_) selectionSettingsSplitter_->setVisible(true);
   if (selectionBox_) selectionBox_->setVisible(true);
-  if (settingsBox_) settingsBox_->setVisible(true);
-  if (outputBox_) outputBox_->setVisible(true);
+  if (settingsBox_)  settingsBox_->setVisible(true);
+  if (outputBox_)    outputBox_->setVisible(true);
+  if (wizardBox_)    wizardBox_->setVisible(true);
+  if (bottomSplit_)  bottomSplit_->setVisible(true);
 
   if (selectionSettingsSplitter_ && !selectionSettingsSplitterSizes_.isEmpty() && selectionSettingsSplitterSizes_.size() >= 2) {
     selectionSettingsSplitter_->setSizes(selectionSettingsSplitterSizes_);
@@ -4896,7 +4916,7 @@ void MainWindow::loadFactoryLists() {
       if (opt) {
         const std::string full = opt->methodFullName();
         if (!full.empty() && full != shortName.toStdString()) {
-          display = QString::fromStdString(full) + " (" + shortName + ")";
+          display = QString::fromStdString(full) + " (" + shortName.toLower() + ")";
         }
       }
     } catch (...) {
