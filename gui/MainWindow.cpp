@@ -5173,35 +5173,15 @@ void MainWindow::updateDimUiForProblem(const QString& problem) {
 }
 
 QString MainWindow::cliPath() const {
-  // On Windows the executable has a .exe suffix; on Linux/macOS it has none.
-#ifdef Q_OS_WIN
-  const QString exeSuffix = QStringLiteral(".exe");
-#else
-  const QString exeSuffix = QString();
-#endif
-
-  const QString exeName = QStringLiteral("optimsolution") + exeSuffix;
-
-  // 1. Prefer CLI next to the GUI binary (post-build copy).
-  const QString dir = QDir(QCoreApplication::applicationDirPath()).absolutePath();
-  const QString candidate = QDir(dir).filePath(exeName);
+  // Prefer CLI next to GUI (post-build copy), else in the same build tree.
+  QString dir = QDir(QCoreApplication::applicationDirPath()).absolutePath();
+  QString candidate = QDir(dir).filePath("optimsolution.exe");
   if (QFileInfo::exists(candidate)) return candidate;
 
-  // 2. Fallback: look inside common build-tree sub-directories relative to projectRoot_.
-  const QString root = projectRoot_;
-  const QStringList buildSubDirs = {
-    QStringLiteral("build/Debug"),
-    QStringLiteral("build/Release"),
-    QStringLiteral("Build/Debug"),
-    QStringLiteral("Build/Release"),
-    QStringLiteral("build"),
-    QStringLiteral("Build"),
-  };
-  for (const QString& sub : buildSubDirs) {
-    const QString cand = QDir(root).filePath(sub + QStringLiteral("/") + exeName);
-    if (QFileInfo::exists(cand)) return cand;
-  }
-
+  // fallback: try build folder relative
+  QString root = projectRoot_;
+  QString cand2 = QDir(root).filePath("build/Debug/optimsolution.exe");
+  if (QFileInfo::exists(cand2)) return cand2;
   return QString();
 }
 
@@ -9149,23 +9129,6 @@ void MainWindow::finalizeBatch() {
 
   batchActive_ = false;
 
-  // Commit the live batch results into the per-page cache AND into the snapshot
-  // IMMEDIATELY after batchActive_ is cleared, before any UI widget is
-  // re-enabled.  Re-enabling widgets (batchPanel_, dimSpin_, …) below fires Qt
-  // signals (itemSelectionChanged, valueChanged, …) that are connected to
-  // refreshBatchSelectionView().  That function reads batchCells_ back from
-  // batchSummaryCellsByPage_, so if we haven't committed yet those reads will
-  // return the stale (empty) values that were saved at batch START and will
-  // silently wipe every result that accumulated during the run.
-  if (g_activeBatchSummaryPage) {
-    batchSummaryCellsByPage_[g_activeBatchSummaryPage] = batchCells_;
-    BatchSummarySnapshot liveSnap = g_batchSummarySnapshots.value(g_activeBatchSummaryPage);
-    liveSnap.csvPaths            = g_liveBatchCsvPaths;
-    liveSnap.cachedProblemDims   = batchCachedProblemDims_;
-    liveSnap.problemDimOverrides = batchProblemDimOverride_;
-    g_batchSummarySnapshots.insert(g_activeBatchSummaryPage, liveSnap);
-  }
-
   // Fully restore the end-of-batch UI state.
   if (busySpinner_) busySpinner_->stop();
 
@@ -9218,6 +9181,24 @@ void MainWindow::finalizeBatch() {
   updateBatchPanelVisibility();
   if (g_activeBatchSummaryPage) {
     bindBatchSummaryUiForPage(g_activeBatchSummaryPage);
+  }
+
+  // FIX 7: Commit the live batch results into the per-page cache AND into the
+  // snapshot BEFORE calling refreshBatchSelectionView().  That function
+  // unconditionally restores batchCells_ from batchSummaryCellsByPage_ and
+  // g_liveBatchCsvPaths from the snapshot — both of which still held the
+  // values saved at batch START (typically empty).  Without this commit every
+  // result accumulated during the run is silently discarded the moment the
+  // batch finishes and the table is wiped clean.
+  if (g_activeBatchSummaryPage) {
+    batchSummaryCellsByPage_[g_activeBatchSummaryPage] = batchCells_;
+    if (g_batchSummarySnapshots.contains(g_activeBatchSummaryPage)) {
+      BatchSummarySnapshot liveSnap = g_batchSummarySnapshots.value(g_activeBatchSummaryPage);
+      liveSnap.csvPaths            = g_liveBatchCsvPaths;
+      liveSnap.cachedProblemDims   = batchCachedProblemDims_;
+      liveSnap.problemDimOverrides = batchProblemDimOverride_;
+      g_batchSummarySnapshots.insert(g_activeBatchSummaryPage, liveSnap);
+    }
   }
 
   refreshBatchSelectionView();
@@ -10593,7 +10574,9 @@ plot->setData(methods, rankDist, title, subtitle);
   // Friedman omnibus + post-hoc (pairwise based on rank differences; normal approximation) + Holm adjustment.
   double sumR2 = 0.0;
   for (double sr : sumRanks) sumR2 += sr * sr;
-  const double chi2 = (12.0 * double(N) / (double(k) * double(k + 1))) * sumR2 - 3.0 * double(N) * double(k + 1);
+  // Standard Friedman statistic: chi2 = 12/(N·k·(k+1)) × Σ Rⱼ² − 3·N·(k+1)
+  // where Rⱼ = sum of ranks for method j across all N problems (sumRanks[j]).
+  const double chi2 = (12.0 / (double(N) * double(k) * double(k + 1))) * sumR2 - 3.0 * double(N) * double(k + 1);
   const double pOmni = chisqSurvival(chi2, k - 1);
 
   const double denom = std::sqrt(double(k) * double(k + 1) / (6.0 * double(N)));
@@ -11069,12 +11052,24 @@ void MainWindow::rebuildWilcoxonPlot() {
 
   int bestIdx = 0;
   if (pairsMode == 1) {
-    double bestMean = std::numeric_limits<double>::infinity();
+    // Determine the "best" method by *average rank* (same logic as the Friedman
+    // Ranking tab) so that the Wilcoxon "Best vs others" selection is always
+    // consistent with the ranking tables.
+    // Using a raw arithmetic mean of metric values can silently pick the wrong
+    // winner when two methods are numerically tied within epsilon on every
+    // problem — the ranking functions handle those ties correctly with average
+    // rank assignment, whereas a bare float comparison does not.
+    QVector<double> sumRanksLocal(k, 0.0);
+    for (int p = 0; p < N; ++p) {
+      QVector<double> rowVals(k);
+      for (int j = 0; j < k; ++j) rowVals[j] = groups[j][p];
+      const QVector<double> r = ranksForMinimization(rowVals);
+      for (int j = 0; j < k; ++j) sumRanksLocal[j] += r[j];
+    }
+    double bestAvgRank = std::numeric_limits<double>::infinity();
     for (int j = 0; j < k; ++j) {
-      double m = 0.0;
-      for (double v : groups[j]) m += v;
-      m /= double(groups[j].size());
-      if (m < bestMean) { bestMean = m; bestIdx = j; }
+      const double ar = sumRanksLocal[j] / double(N);
+      if (ar < bestAvgRank) { bestAvgRank = ar; bestIdx = j; }
     }
   }
 
