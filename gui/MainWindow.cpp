@@ -9149,6 +9149,23 @@ void MainWindow::finalizeBatch() {
 
   batchActive_ = false;
 
+  // Commit the live batch results into the per-page cache AND into the snapshot
+  // IMMEDIATELY after batchActive_ is cleared, before any UI widget is
+  // re-enabled.  Re-enabling widgets (batchPanel_, dimSpin_, …) below fires Qt
+  // signals (itemSelectionChanged, valueChanged, …) that are connected to
+  // refreshBatchSelectionView().  That function reads batchCells_ back from
+  // batchSummaryCellsByPage_, so if we haven't committed yet those reads will
+  // return the stale (empty) values that were saved at batch START and will
+  // silently wipe every result that accumulated during the run.
+  if (g_activeBatchSummaryPage) {
+    batchSummaryCellsByPage_[g_activeBatchSummaryPage] = batchCells_;
+    BatchSummarySnapshot liveSnap = g_batchSummarySnapshots.value(g_activeBatchSummaryPage);
+    liveSnap.csvPaths            = g_liveBatchCsvPaths;
+    liveSnap.cachedProblemDims   = batchCachedProblemDims_;
+    liveSnap.problemDimOverrides = batchProblemDimOverride_;
+    g_batchSummarySnapshots.insert(g_activeBatchSummaryPage, liveSnap);
+  }
+
   // Fully restore the end-of-batch UI state.
   if (busySpinner_) busySpinner_->stop();
 
@@ -9201,24 +9218,6 @@ void MainWindow::finalizeBatch() {
   updateBatchPanelVisibility();
   if (g_activeBatchSummaryPage) {
     bindBatchSummaryUiForPage(g_activeBatchSummaryPage);
-  }
-
-  // FIX 7: Commit the live batch results into the per-page cache AND into the
-  // snapshot BEFORE calling refreshBatchSelectionView().  That function
-  // unconditionally restores batchCells_ from batchSummaryCellsByPage_ and
-  // g_liveBatchCsvPaths from the snapshot — both of which still held the
-  // values saved at batch START (typically empty).  Without this commit every
-  // result accumulated during the run is silently discarded the moment the
-  // batch finishes and the table is wiped clean.
-  if (g_activeBatchSummaryPage) {
-    batchSummaryCellsByPage_[g_activeBatchSummaryPage] = batchCells_;
-    if (g_batchSummarySnapshots.contains(g_activeBatchSummaryPage)) {
-      BatchSummarySnapshot liveSnap = g_batchSummarySnapshots.value(g_activeBatchSummaryPage);
-      liveSnap.csvPaths            = g_liveBatchCsvPaths;
-      liveSnap.cachedProblemDims   = batchCachedProblemDims_;
-      liveSnap.problemDimOverrides = batchProblemDimOverride_;
-      g_batchSummarySnapshots.insert(g_activeBatchSummaryPage, liveSnap);
-    }
   }
 
   refreshBatchSelectionView();
