@@ -5173,15 +5173,35 @@ void MainWindow::updateDimUiForProblem(const QString& problem) {
 }
 
 QString MainWindow::cliPath() const {
-  // Prefer CLI next to GUI (post-build copy), else in the same build tree.
-  QString dir = QDir(QCoreApplication::applicationDirPath()).absolutePath();
-  QString candidate = QDir(dir).filePath("optimsolution.exe");
+  // On Windows the executable has a .exe suffix; on Linux/macOS it has none.
+#ifdef Q_OS_WIN
+  const QString exeSuffix = QStringLiteral(".exe");
+#else
+  const QString exeSuffix = QString();
+#endif
+
+  const QString exeName = QStringLiteral("optimsolution") + exeSuffix;
+
+  // 1. Prefer CLI next to the GUI binary (post-build copy).
+  const QString dir = QDir(QCoreApplication::applicationDirPath()).absolutePath();
+  const QString candidate = QDir(dir).filePath(exeName);
   if (QFileInfo::exists(candidate)) return candidate;
 
-  // fallback: try build folder relative
-  QString root = projectRoot_;
-  QString cand2 = QDir(root).filePath("build/Debug/optimsolution.exe");
-  if (QFileInfo::exists(cand2)) return cand2;
+  // 2. Fallback: look inside common build-tree sub-directories relative to projectRoot_.
+  const QString root = projectRoot_;
+  const QStringList buildSubDirs = {
+    QStringLiteral("build/Debug"),
+    QStringLiteral("build/Release"),
+    QStringLiteral("Build/Debug"),
+    QStringLiteral("Build/Release"),
+    QStringLiteral("build"),
+    QStringLiteral("Build"),
+  };
+  for (const QString& sub : buildSubDirs) {
+    const QString cand = QDir(root).filePath(sub + QStringLiteral("/") + exeName);
+    if (QFileInfo::exists(cand)) return cand;
+  }
+
   return QString();
 }
 
