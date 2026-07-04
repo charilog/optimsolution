@@ -47,15 +47,13 @@ void WOA::init() {
         if (prob_->calls() >= max_evals_) break;  
     }
 
-	// take the elite (e.g., top 20% but at least 12 values)
-	std::vector<double> eliteFx = FX_;
-	std::sort(eliteFx.begin(), eliteFx.end());
-	int keep = std::max(12, (int)std::ceil(0.2 * eliteFx.size()));
-	if ((int)eliteFx.size() > keep) eliteFx.resize(keep);
-
-	// update BSS with the elite first, then print
-	updateStop(eliteFx);
-	printBest();
+    // FIX (logic): updateStop() must receive the fitness values of the WHOLE
+    // population, exactly as in every other method (DE/PSO/GWO/MEWOA...).
+    // Previously only a sorted "elite" subset (top 20%, min 12 values) was
+    // passed, which biased the population statistics used by the stopping
+    // rules (e.g. variance/BSS based) and caused premature termination.
+    updateStop(FX_);
+    printBest();
 }
 
 
@@ -83,9 +81,15 @@ void WOA::one_iteration(){
 
     for (int i=0; i<pop_; ++i){
         double p = U01(rng_);
-        double r = U01(rng_);
-        double A = 2.0 * a * r - a;
-        double C = 2.0 * r;
+        // FIX (logic): the original WOA draws A and C from INDEPENDENT random
+        // numbers (A = 2*a*r1 - a, C = 2*r2). Using the same r for both fully
+        // correlates the shrinking coefficient with the encircling coefficient
+        // (e.g. |A| small always implies C small), which distorts the
+        // exploration/exploitation balance of the algorithm.
+        double r1 = U01(rng_);
+        double r2 = U01(rng_);
+        double A = 2.0 * a * r1 - a;
+        double C = 2.0 * r2;
 
         std::vector<double> x(D, 0.0);
 
@@ -133,8 +137,13 @@ void WOA::one_iteration(){
         }
     }
 
-updateStop(std::vector<double>{best_f_});
-printBest();
+    // FIX (logic): passing a single value {best_f_} to updateStop() makes any
+    // population-statistics-based stopping rule (variance, doublebox, BSS...)
+    // see zero spread and fire immediately, so WOA stopped after a handful of
+    // iterations and appeared to "not converge". The full FX_ must be passed,
+    // as in all other methods.
+    updateStop(FX_);
+    printBest();
 }
 
 

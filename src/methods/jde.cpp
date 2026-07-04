@@ -141,17 +141,27 @@ void jDE::one_iteration()
         if (prob_->calls() >= max_evals_) break;
 
         // Self-adaptation of F_i and CR_i (Brest jDE)
+        // FIX (logic): in canonical jDE the freshly sampled F_i/CR_i are part
+        // of the individual and survive ONLY if the trial vector wins the
+        // selection; otherwise the old values are kept. Previously F_i_[i] and
+        // CR_i_[i] were overwritten unconditionally before the trial and never
+        // reverted on failure, so the self-adaptation degenerated into a pure
+        // random walk of the control parameters (no selection pressure on
+        // F/CR), which noticeably hurts convergence.
+        const double F_old  = F_i_[i];
+        const double CR_old = CR_i_[i];
+
+        double Fi  = F_old;
+        double CRi = CR_old;
+
         double r1 = U01(rng_);
         if (r1 < tau1_) {
-            F_i_[i] = F_min_ + U01(rng_) * (F_max_ - F_min_);
+            Fi = F_min_ + U01(rng_) * (F_max_ - F_min_);
         }
         double r2 = U01(rng_);
         if (r2 < tau2_) {
-            CR_i_[i] = U01(rng_);
+            CRi = U01(rng_);
         }
-
-        double Fi  = F_i_[i];
-        double CRi = CR_i_[i];
 
         // Mutation: DE/rand/1
         int r1_idx = randIndexExcl(i, -1, -1);
@@ -184,9 +194,14 @@ void jDE::one_iteration()
         if (f_new <= FX_[i]) {
             newPop[i] = u;
             newFit[i] = f_new;
+            // Trial won the selection: the sampled control parameters survive.
+            F_i_[i]  = Fi;
+            CR_i_[i] = CRi;
         } else {
             newPop[i] = X_[i];
             newFit[i] = FX_[i];
+            // Trial lost: the individual keeps its previous F/CR (F_old/CR_old
+            // are still stored in F_i_[i]/CR_i_[i], nothing to do).
         }
 
         if (newFit[i] < best_f_) {

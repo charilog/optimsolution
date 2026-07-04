@@ -199,14 +199,22 @@ void GSA::one_iteration(){
         Vec xnew = X_[i];
         Vec vnew = V_[i];
 
+        // FIX (logic): the velocity must be clamped BEFORE it is applied to
+        // the position. Previously clampVelocity(vnew) was called after
+        // xnew += vnew, so the position update of the current iteration was
+        // performed with an unclamped velocity — agents could take arbitrarily
+        // large jumps (only truncated at the box bounds), which destroyed the
+        // exploitation phase of GSA and pinned agents to the domain corners.
         for (int d=0; d<D; ++d){
             const double r = U01(rng_);
             vnew[d] = w_ * vnew[d] + r * A[i][d];
             if (!std::isfinite(vnew[d])) vnew[d] = 0.0;
+        }
+        clampVelocity(vnew);
+
+        for (int d=0; d<D; ++d){
             xnew[d] += vnew[d];
         }
-
-        clampVelocity(vnew);
         ensureBounds(xnew);
 
         double fnew = eval(xnew);
