@@ -372,7 +372,19 @@ void ARQ3::sortByFitness() {
 // ============================================================================
 int ARQ3::targetPopulationSize() const {
     double p = progress01();
-    double frac = std::pow(p, nlpsr_alpha_);
+    // FIX (logic): the old code used pow(p, alpha) with alpha = 0.5, which
+    // contradicts both the documented semantics ("1.0 = linear, <1 = slower
+    // shrink early, faster near the end") and the reference it names
+    // (NL-SHADE-RSP, whose reduction follows p^(1-p)): being concave, it had
+    // completed 22% of the reduction at 5% of the budget and 50% at 25% —
+    // i.e. it collapsed the population early instead of late. The exponent is
+    // now interpolated from 1 (at p=0) down to alpha (at p=1):
+    //   alpha == 1 -> exponent 1 -> exactly linear (as documented);
+    //   alpha  < 1 -> near-linear early, accelerating shrink near the end,
+    // which for the default alpha = 0.5 tracks NL-SHADE-RSP's p^(1-p) curve
+    // closely in the critical early phase (0.054 vs 0.058 at p = 0.05).
+    const double expo = 1.0 - (1.0 - nlpsr_alpha_) * p;
+    double frac = std::pow(p, expo);
     double N = (double)Ninit_ + ((double)Nmin_ - (double)Ninit_) * frac;
     int Ni = (int)std::round(N);
     if (Ni < Nmin_) Ni = Nmin_;
@@ -798,7 +810,15 @@ bool ARQ3::selectionRTR(int parentIndex, const Vec& u, double fu,
     int qstar = -1;
     double bestD = std::numeric_limits<double>::infinity();
     for (int k = 0; k < pool; ++k) {
+        // FIX (inconsistency): the parent must be excluded from the RTR pool.
+        // The greedy parent comparison has already failed in the first branch
+        // (fu >= FX_[parent]); since the offspring is typically closest to its
+        // own parent, drawing the parent into the pool made it the nearest
+        // element most of the time and the fallback silently re-tested a known
+        // failure instead of giving the trial a chance against the truly
+        // nearest OTHER individual — defeating the purpose of RTR.
         int q = randInt(0, N - 1);
+        if (q == parentIndex) continue;
         double d = distBN(u, X_[q]);
         if (d < bestD) { bestD = d; qstar = q; }
     }
@@ -1037,9 +1057,11 @@ void ARQ3::stepIDE() {
         Q[i] = y;
     }
 
+    int evaluated = 0;
     for (int i = 0; i < N; ++i) {
         if (prob_->calls() >= max_evals_) break;
         QF[i] = eval(Q[i]);
+        ++evaluated;
     }
 
     std::vector<int> indsucc;
@@ -1064,7 +1086,11 @@ void ARQ3::stepIDE() {
         }
     }
 
-    banditRecord(1, (int)indsucc.size(), std::max(1, N));
+    // FIX (inconsistency): the bandit's "attempts" for IDE must count the
+    // trials that were actually EVALUATED, exactly as stepARQ counts them.
+    // Charging a fixed N even when the budget cut the evaluation loop short
+    // deflated IDE's apparent success rate relative to ARQ's.
+    banditRecord(1, (int)indsucc.size(), std::max(1, evaluated));
 
     // IDE reshuffles ordering; force eigen recomputation
     eig_valid_ = false;
