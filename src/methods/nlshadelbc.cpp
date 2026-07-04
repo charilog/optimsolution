@@ -405,17 +405,25 @@ void NLSHADELBC::one_iteration(){
             trial = binomialCrossover(xi, donor, cr);
             if (inBounds(trial)) {
                 const double fu = eval(trial);
-                if (fu < FX_[i]) {
-                    updateArchive(xi, fi, target_archive_size);
+                // FIX (logic): SHADE-family selection replaces the target when
+                // fu <= fi (equal-fitness trials must survive so the population
+                // can drift across plateaus); the success history (SF/SCR),
+                // the improvement weights and the archive insertion apply only
+                // on STRICT improvement. The old strict-< replacement rejected
+                // ties, freezing the population on flat regions.
+                if (fu <= FX_[i]) {
+                    if (fu < FX_[i]) {
+                        updateArchive(xi, fi, target_archive_size);
+                        SF.push_back(F);
+                        SCR.push_back(cr);
+                        improvements.push_back(std::fabs(fi - fu));
+                    }
                     X_[i] = trial;
                     FX_[i] = fu;
                     if (fu < best_f_) {
                         best_f_ = fu;
                         best_x_ = trial;
                     }
-                    SF.push_back(F);
-                    SCR.push_back(cr);
-                    improvements.push_back(std::fabs(fi - fu));
                 }
                 goto next_individual;
             }
@@ -424,17 +432,21 @@ void NLSHADELBC::one_iteration(){
         midpointTargetRepair(trial, xi);
         {
             const double fu = eval(trial);
-            if (fu < FX_[i]) {
-                updateArchive(xi, fi, target_archive_size);
+            // FIX (logic): same rule as above — replace on <=, record success
+            // and archive the defeated parent only on strict improvement.
+            if (fu <= FX_[i]) {
+                if (fu < FX_[i]) {
+                    updateArchive(xi, fi, target_archive_size);
+                    SF.push_back(lastF);
+                    SCR.push_back(cr);
+                    improvements.push_back(std::fabs(fi - fu));
+                }
                 X_[i] = trial;
                 FX_[i] = fu;
                 if (fu < best_f_) {
                     best_f_ = fu;
                     best_x_ = trial;
                 }
-                SF.push_back(lastF);
-                SCR.push_back(cr);
-                improvements.push_back(std::fabs(fi - fu));
             }
         }
 

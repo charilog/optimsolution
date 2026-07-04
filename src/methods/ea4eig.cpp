@@ -10,6 +10,144 @@ namespace optimsolution {
 
 static constexpr double EA4EIG_PI = 3.14159265358979323846;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FIX (omission): the eigen crossover — the defining component of EA4Eig
+// ("Evolutionary Algorithms with EIGen crossover", Bujok & Kolenovsky 2022) —
+// was entirely missing from this port. The knobs peig_ (probability of eigen
+// crossover) and CBps_ (portion of best individuals whose covariance defines
+// the eigen basis, as in CoBiDE) were read in configure() but never used, and
+// B_ / ceig_ stayed at their init() identity/false values forever, so the
+// method silently degenerated into a plain binomial-crossover ensemble.
+// The helpers below implement it: a cyclic Jacobi eigendecomposition of the
+// covariance matrix of the best ⌈CBps_·N⌉ individuals provides the basis B;
+// with probability peig_ the binomial crossover is performed in that basis
+// (y' = Bᵀy) and the trial is rotated back (y = B y').
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Cyclic Jacobi for symmetric A (row-major D×D). Eigenvectors returned as the
+// COLUMNS of V. Returns false if it fails to converge.
+static bool ea4eigJacobi(std::vector<double> A, int D, std::vector<double>& V,
+                         int maxSweeps = 32)
+{
+    V.assign((size_t)D * D, 0.0);
+    for (int i = 0; i < D; ++i) V[(size_t)i * D + i] = 1.0;
+    if (D <= 1) return true;
+
+    for (int sweep = 0; sweep < maxSweeps; ++sweep) {
+        double off = 0.0;
+        for (int p = 0; p < D; ++p)
+            for (int q = p + 1; q < D; ++q)
+                off += A[(size_t)p * D + q] * A[(size_t)p * D + q];
+        if (off < 1e-20) return true;
+
+        for (int p = 0; p < D - 1; ++p) {
+            for (int q = p + 1; q < D; ++q) {
+                const double apq = A[(size_t)p * D + q];
+                if (std::fabs(apq) < 1e-18) continue;
+                const double app = A[(size_t)p * D + p];
+                const double aqq = A[(size_t)q * D + q];
+                const double theta = 0.5 * (aqq - app) / apq;
+                double t = 1.0 / (std::fabs(theta) + std::sqrt(theta * theta + 1.0));
+                if (theta < 0.0) t = -t;
+                const double cth = 1.0 / std::sqrt(t * t + 1.0);
+                const double sth = t * cth;
+
+                for (int k = 0; k < D; ++k) {
+                    const double akp = A[(size_t)k * D + p];
+                    const double akq = A[(size_t)k * D + q];
+                    A[(size_t)k * D + p] = cth * akp - sth * akq;
+                    A[(size_t)k * D + q] = sth * akp + cth * akq;
+                }
+                for (int k = 0; k < D; ++k) {
+                    const double apk = A[(size_t)p * D + k];
+                    const double aqk = A[(size_t)q * D + k];
+                    A[(size_t)p * D + k] = cth * apk - sth * aqk;
+                    A[(size_t)q * D + k] = sth * apk + cth * aqk;
+                }
+                for (int k = 0; k < D; ++k) {
+                    const double vkp = V[(size_t)k * D + p];
+                    const double vkq = V[(size_t)k * D + q];
+                    V[(size_t)k * D + p] = cth * vkp - sth * vkq;
+                    V[(size_t)k * D + q] = sth * vkp + cth * vkq;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// Builds the eigen basis (columns of B) from the covariance of the best
+// ⌈ps·N⌉ individuals (CoBiDE-style covariance matrix learning).
+static bool ea4eigBuildBasis(const std::vector<std::vector<double>>& X,
+                             const std::vector<double>& FX,
+                             double ps, int D,
+                             std::vector<double>& B)
+{
+    const int N = (int)X.size();
+    // Guard: the O(D³) Jacobi is meant for benchmark-scale dimensions.
+    if (N < 3 || D < 2 || D > 100) return false;
+
+    std::vector<int> order(N);
+    std::iota(order.begin(), order.end(), 0);
+    std::sort(order.begin(), order.end(),
+              [&](int a, int b) { return FX[a] < FX[b]; });
+
+    int k = std::max(2, (int)std::llround(ps * N));
+    if (k > N) k = N;
+
+    std::vector<double> mean(D, 0.0);
+    for (int i = 0; i < k; ++i)
+        for (int j = 0; j < D; ++j)
+            mean[j] += X[order[i]][j] / (double)k;
+
+    std::vector<double> C((size_t)D * D, 0.0);
+    for (int i = 0; i < k; ++i) {
+        const auto& x = X[order[i]];
+        for (int a = 0; a < D; ++a) {
+            const double da = x[a] - mean[a];
+            for (int b = a; b < D; ++b) {
+                C[(size_t)a * D + b] += da * (x[b] - mean[b]) / (double)(k - 1);
+            }
+        }
+    }
+    for (int a = 0; a < D; ++a)
+        for (int b = 0; b < a; ++b)
+            C[(size_t)a * D + b] = C[(size_t)b * D + a];
+
+    for (double v : C) if (!std::isfinite(v)) return false;
+    return ea4eigJacobi(C, D, B);
+}
+
+// Binomial crossover performed in the eigen coordinate system:
+// x' = Bᵀx, v' = Bᵀv, binomial(x', v') → y', y = B y'.
+template <typename RandU, typename RandInt>
+static std::vector<double> ea4eigEigenCrossover(
+        const std::vector<double>& x, const std::vector<double>& v,
+        double CR, const std::vector<double>& B, int D,
+        RandU&& randU, RandInt&& randInt)
+{
+    std::vector<double> xp(D, 0.0), vp(D, 0.0), yp(D, 0.0), y(D, 0.0);
+    for (int r = 0; r < D; ++r) {
+        double sx = 0.0, sv = 0.0;
+        for (int j = 0; j < D; ++j) {
+            const double brj = B[(size_t)j * D + r]; // column r of B
+            sx += brj * x[j];
+            sv += brj * v[j];
+        }
+        xp[r] = sx; vp[r] = sv;
+    }
+    const int jrand = randInt(0, D - 1);
+    for (int r = 0; r < D; ++r)
+        yp[r] = (randU() < CR || r == jrand) ? vp[r] : xp[r];
+    for (int j = 0; j < D; ++j) {
+        double s = 0.0;
+        for (int r = 0; r < D; ++r)
+            s += B[(size_t)j * D + r] * yp[r];
+        y[j] = s;
+    }
+    return y;
+}
+
 void EA4Eig::configure(const MethodConfig& mc)
 {
     // population
@@ -370,6 +508,10 @@ void EA4Eig::stepCobide()
     const int N = N_;
     if (N < 4) return;
 
+    // FIX (omission): CoBiDE-style eigen basis from the covariance of the
+    // best ⌈CBps_·N⌉ individuals; ceig_ flags whether the basis is usable.
+    ceig_ = (peig_ > 0.0) && ea4eigBuildBasis(X_, FX_, CBps_, D, B_);
+
     std::vector<Vec> Q(N, Vec(D));
     std::vector<double> QF(N, std::numeric_limits<double>::infinity());
 
@@ -390,12 +532,21 @@ void EA4Eig::stepCobide()
             v[j] = x1[j] + F * (x2[j] - x3[j]);
         ensureBounds(v);
 
-        Vec y = X_[i];
+        Vec y;
         double CR = CBCR_[i];
-        int jrand = randInt(0, D - 1);
-        for (int j = 0; j < D; ++j) {
-            if (randU() < CR || j == jrand)
-                y[j] = v[j];
+        // FIX (omission): with probability peig_ the crossover is performed in
+        // the eigen coordinate system (this is the "Eig" of EA4Eig).
+        if (ceig_ && randU() < peig_) {
+            y = ea4eigEigenCrossover(X_[i], v, CR, B_, D,
+                                     [&]{ return randU(); },
+                                     [&](int lo, int hi){ return randInt(lo, hi); });
+        } else {
+            y = X_[i];
+            int jrand = randInt(0, D - 1);
+            for (int j = 0; j < D; ++j) {
+                if (randU() < CR || j == jrand)
+                    y[j] = v[j];
+            }
         }
         ensureBounds(y);
         double fy = eval(y);
@@ -407,10 +558,16 @@ void EA4Eig::stepCobide()
 
     for (int i = 0; i < N; ++i) {
         if (QF[i] <= FX_[i]) {
+            // FIX (inconsistency): the roulette success counters must count
+            // STRICT improvements only, as stepJSO and stepCMAES already do.
+            // Counting ties (<=) inflated ni_[0] on plateaus and biased the
+            // roulette toward CoBiDE without any actual progress.
+            if (QF[i] < FX_[i]) {
+                success_[0] += 1;
+                ni_[0] += 1.0;
+            }
             X_[i]  = Q[i];
             FX_[i] = QF[i];
-            success_[0] += 1;
-            ni_[0] += 1.0;
             if (FX_[i] < best_f_) {
                 best_f_ = FX_[i];
                 best_x_ = X_[i];
@@ -513,14 +670,25 @@ void EA4Eig::stepIDE()
         Q[i] = v;
     }
 
+    // FIX (omission): the eigen crossover applies to the IDE member as well.
+    // The basis is rebuilt here because the population was just re-sorted.
+    ceig_ = (peig_ > 0.0) && ea4eigBuildBasis(X_, FX_, CBps_, D, B_);
+
     for (int i = 0; i < N; ++i) {
-        Vec y = X_[i];
         const Vec& v = Q[i];
         double CR = CBCR_[i];
-        int jrand = randInt(0, D - 1);
-        for (int j = 0; j < D; ++j) {
-            if (randU() < CR || j == jrand)
-                y[j] = v[j];
+        Vec y;
+        if (ceig_ && randU() < peig_) {
+            y = ea4eigEigenCrossover(X_[i], v, CR, B_, D,
+                                     [&]{ return randU(); },
+                                     [&](int lo, int hi){ return randInt(lo, hi); });
+        } else {
+            y = X_[i];
+            int jrand = randInt(0, D - 1);
+            for (int j = 0; j < D; ++j) {
+                if (randU() < CR || j == jrand)
+                    y[j] = v[j];
+            }
         }
         ensureBounds(y);
         Q[i] = y;
@@ -533,13 +701,18 @@ void EA4Eig::stepIDE()
     }
 
     std::vector<int> indsucc;
+    int strict_ide = 0;
     for (int i = 0; i < N; ++i) {
         if (QF[i] <= FX_[i]) {
             indsucc.push_back(i);
+            // FIX (inconsistency): roulette credit only for strict
+            // improvements (same rule as stepJSO / stepCMAES); ties still
+            // replace the parent but must not inflate ni_[1].
+            if (QF[i] < FX_[i]) ++strict_ide;
         }
     }
-    success_[1] += (int)indsucc.size();
-    ni_[1]      += (double)indsucc.size();
+    success_[1] += strict_ide;
+    ni_[1]      += (double)strict_ide;
 
     double SR = (N > 0) ? ((double)indsucc.size() / (double)N) : 0.0;
     if (g_ < gt_) {
@@ -627,6 +800,15 @@ void EA4Eig::stepCMAES()
         Pop[k] = std::move(y);
         PopFit[k] = fy;
         if (prob_->calls() >= max_evals_) break;
+    }
+
+    // FIX (logic): if the evaluation budget ran out mid-sampling, the
+    // remaining Pop rows are still zero vectors. They must not be copied into
+    // oldPop_ (below), because oldPop_ anchors the bound repair of the next
+    // CMA-ES call — zero anchors would drag repaired points toward the origin.
+    for (int k = 0; k < N; ++k) {
+        if (!std::isfinite(PopFit[k]) && k < (int)oldPop_.size())
+            Pop[k] = oldPop_[k];
     }
 
     int bestIdx = 0;
@@ -733,6 +915,9 @@ void EA4Eig::stepJSO()
     };
 
     trimArchive((int)std::round(1.4 * N));
+
+    // FIX (omission): the eigen crossover applies to the jSO member as well.
+    ceig_ = (peig_ > 0.0) && ea4eigBuildBasis(X_, FX_, CBps_, D, B_);
 
     double nfes = static_cast<double>(prob_->calls());
     double fes_ratio = nfes / maxFES;
@@ -848,14 +1033,29 @@ void EA4Eig::stepJSO()
                 break;
             }
 
-            int jrand = Ui_dim(rng_);
+            // FIX (omission): the donor is now built in full so that the
+            // crossover can also be performed in the eigen coordinate system
+            // (previously mutation and binomial crossover were fused in one
+            // loop, which made the eigen variant impossible).
+            Vec vi(D);
             for (int j = 0; j < D; ++j) {
-                if (randU() < CRi || j == jrand) {
-                    ui[j] = xi[j]
-                          + Fw * (xp[j] - xi[j])
-                          + Fi * (xr1[j] - xr2[j]);
-                } else {
-                    ui[j] = xi[j];
+                vi[j] = xi[j]
+                      + Fw * (xp[j] - xi[j])
+                      + Fi * (xr1[j] - xr2[j]);
+            }
+
+            if (ceig_ && randU() < peig_) {
+                ui = ea4eigEigenCrossover(xi, vi, CRi, B_, D,
+                                          [&]{ return randU(); },
+                                          [&](int lo, int hi){ return randInt(lo, hi); });
+            } else {
+                int jrand = Ui_dim(rng_);
+                for (int j = 0; j < D; ++j) {
+                    if (randU() < CRi || j == jrand) {
+                        ui[j] = vi[j];
+                    } else {
+                        ui[j] = xi[j];
+                    }
                 }
             }
 

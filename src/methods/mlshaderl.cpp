@@ -212,6 +212,15 @@ void mLSHADE_RL::one_iteration()
     std::fill(strat_use_count_.begin(),  strat_use_count_.end(),  0);
 
     const size_t maxArc = (size_t)std::round(arc_rate_ * Ncurr);
+    // FIX (omission): in L-SHADE the archive shrinks together with the
+    // population (|A| = round(arc_rate * NP)). The old code recomputed maxArc
+    // but never trimmed the existing archive, so it stayed at its historical
+    // maximum (arc_rate * pop_init) for the whole run, weakening the selection
+    // pressure of the archive in the late phase.
+    while (archive_.size() > maxArc) {
+        std::uniform_int_distribution<size_t> Ui_arc(0, archive_.size() - 1);
+        archive_.erase(archive_.begin() + (long)Ui_arc(rng_));
+    }
 
     for (int i = 0; i < Ncurr; ++i) {
         if (prob_->calls() >= max_evals_) break;
@@ -372,25 +381,30 @@ void mLSHADE_RL::one_iteration()
             newPop[i] = ui;
             newFit[i] = f_new;
 
-            // archive
-            if (maxArc > 0) {
-                if (archive_.size() < maxArc) {
-                    archive_.push_back(X_[i]);
-                } else if (!archive_.empty()) {
-                    std::uniform_int_distribution<size_t> Ui_arc(0, archive_.size() - 1);
-                    archive_[Ui_arc(rng_)] = X_[i];
+            // FIX (inconsistency): the success history (SF/SCR/weights), the
+            // RL reward and the archive insertion follow the L-SHADE rule and
+            // apply only on STRICT improvement. The old code recorded ties
+            // (diff = 0, weight 1e-12) as "successes" and pushed the parent of
+            // an equal-fitness trial into the archive, polluting both the F/CR
+            // adaptation and the strategy rewards on plateaus.
+            if (f_new < FX_[i]) {
+                // archive: the defeated parent
+                if (maxArc > 0) {
+                    if (archive_.size() < maxArc) {
+                        archive_.push_back(X_[i]);
+                    } else if (!archive_.empty()) {
+                        std::uniform_int_distribution<size_t> Ui_arc(0, archive_.size() - 1);
+                        archive_[Ui_arc(rng_)] = X_[i];
+                    }
                 }
-            } else {
-                archive_.clear();
+
+                const double diff = FX_[i] - f_new;
+                SF.push_back(Fi);
+                SCR.push_back(CRi);
+                weights.push_back(diff);
+
+                strat_reward_acc_[strat] += diff;
             }
-
-            double diff = FX_[i] - f_new;
-            if (diff < 0.0) diff = 0.0;
-            SF.push_back(Fi);
-            SCR.push_back(CRi);
-            weights.push_back(diff + 1e-12);
-
-            strat_reward_acc_[strat] += diff;
 
             // In-run local search on the improved individual
             if (local_rate_ > 0.0 && !local_method_.empty()) {
@@ -404,8 +418,15 @@ void mLSHADE_RL::one_iteration()
                 }
             }
 
-            if (f_new < best_f_) {
-                best_f_ = f_new;
+            // FIX (logic): the global best must be checked against newFit[i]
+            // (the fitness AFTER the optional local refinement), not f_new.
+            // The old check compared f_new < best_f_ and stored newPop[i]:
+            // (a) a locally refined point better than the global best was
+            //     missed whenever its raw f_new was not, and
+            // (b) when it did fire, best_f_ was set to f_new while best_x_
+            //     held the refined point — a mismatched (x, f) pair.
+            if (newFit[i] < best_f_) {
+                best_f_ = newFit[i];
                 best_x_ = newPop[i];
             }
         } else {
