@@ -71,12 +71,26 @@ void StepEllipsoidal::gradient_core(const Vec& x, Vec& g)
     const int D = dimension();
     g.assign(D, 0.0);
 
-    // derivative undefined at grid lines; use straight-through estimator:
+    // derivative undefined at grid lines; use straight-through estimator
+    // (treat dz_i/dx_i ~= 1) for both terms of
+    //   f(x) = 0.1 * max_i |z_i| + sum_i w_i * z_i^2
+    Vec z(D);
+    int argmax = 0;
+    double maxabs = -1.0;
     for (int i = 0; i < D; ++i) {
-        double z = std::floor(0.5 + x[i]);
+        z[i] = std::floor(0.5 + x[i]);
+        // straight-through gradient of the sum-of-squares term
+        g[i] = 2.0 * w_[i] * z[i];
+        if (std::fabs(z[i]) > maxabs) {
+            maxabs = std::fabs(z[i]);
+            argmax = i;
+        }
+    }
 
-        // approximate gradient:
-        g[i] = 2.0 * w_[i] * z;
+    // straight-through gradient of the 0.1 * max_i |z_i| term: only the
+    // argmax coordinate carries this contribution.
+    if (D > 0 && z[argmax] != 0.0) {
+        g[argmax] += 0.1 * (z[argmax] > 0.0 ? 1.0 : -1.0);
     }
 }
 

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <sstream>
 
 namespace optimsolution {
@@ -128,7 +129,16 @@ double TNEP::evaluate_from_integer(const std::vector<int>& n_add,
 
     std::vector<double> theta, flow;
     double shed = 0.0;
-    if (!solve_dc_pf(n_tot, theta, flow, shed)) return 1e12;
+    if (!solve_dc_pf(n_tot, theta, flow, shed)) {
+        // NOTE: previously out_over/out_cost were left untouched here, so a
+        // caller that pre-initialized them to 0.0 (as print_reference_solution_once()
+        // does) would misreport an infeasible/singular network (e.g. an
+        // isolated bus with no active circuits reaching it) as "cost=0,
+        // overload=0" instead of the true failure. Make the failure explicit.
+        out_over = std::numeric_limits<double>::quiet_NaN();
+        out_cost = std::numeric_limits<double>::quiet_NaN();
+        return 1e12;
+    }
 
     double cost = 0.0;
     for (int l=0;l<L_;++l) cost += cost_[l] * (double)std::max(0, n_add[l]);
@@ -148,10 +158,23 @@ double TNEP::evaluate_from_integer(const std::vector<int>& n_add,
 }
 
 void TNEP::print_reference_solution_once() const {
-	// Reference feasible vector (without overload) that gives f ~ 21
-	// Paths in order of from_/to_:
-    // 0–1, 0–3, 0–4, 1–2, 1–3, 1–4, 1–5, 2–3, 3–4, 3–5, 4–5
-    std::vector<int> n_add = {1,1,1,1,1,0,0,0,1,0,0};
+    // Sanity-check / smoke-test vector for the DC power-flow solver.
+    // Paths in order of from_/to_:
+    // 0-1, 0-3, 0-4, 1-2, 1-3, 1-4, 1-5, 2-3, 3-4, 3-5, 4-5
+    //
+    // NOTE: a previous version of this vector left bus 5 with zero active
+    // circuits on all three of its incident lines (indices 6, 9, 10 all 0),
+    // i.e. bus 5 was completely disconnected from the rest of the network.
+    // That makes the reduced susceptance matrix singular, so solve_dc_pf()
+    // always failed for it -- yet the comment claimed "f ~ 21, no overload".
+    // Since evaluate_from_integer() also used to leave out_cost/out_over
+    // untouched on that failure path, the message below used to silently
+    // print the caller's stale zero-initialized values ("cost=0,
+    // overload=0") instead of revealing the failure. Both issues are fixed:
+    // bus 5 is now kept connected (a circuit added on line 6, 1-5), and
+    // evaluate_from_integer() now reports NaN for cost/overload on failure
+    // instead of silently keeping stale values.
+    std::vector<int> n_add = {1,1,1,1,1,0,1,0,1,0,0};
 
     double over = 0.0, cost = 0.0;
     const double f = evaluate_from_integer(n_add, over, cost);
@@ -162,7 +185,11 @@ void TNEP::print_reference_solution_once() const {
         os << n_add[l];
         if (l+1 < L_) os << ",";
     }
-    os << "], cost=" << cost << ", overload=" << over << ", f=" << f << "\n";
+    if (std::isnan(cost) || std::isnan(over)) {
+        os << "] -> INFEASIBLE (singular/disconnected network), f=" << f << "\n";
+    } else {
+        os << "], cost=" << cost << ", overload=" << over << ", f=" << f << "\n";
+    }
 
     std::fprintf(stderr, "%s", os.str().c_str());
 }

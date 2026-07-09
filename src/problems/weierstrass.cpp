@@ -81,22 +81,42 @@ double Weierstrass::evaluate_core(const Vec& x)
     return f;
 }
 
+// Exact analytic gradient (previously computed via forward differences).
+//
+// f(x) = sum_i [ sum_k a^k cos(2*pi*b^k*(x_i+0.5)) ] - D*C, so each coordinate
+// is independent and:
+//   d/dx_i [ a^k cos(2*pi*b^k*(x_i+0.5)) ] = -2*pi*(a*b)^k * sin(2*pi*b^k*(x_i+0.5))
+//
+// At the default kmax=20, b=3, the highest-order term oscillates with angular
+// frequency 2*pi*b^20 (~2.2e10 rad per unit x), so a finite-difference step of
+// h~1e-6 (as used elsewhere in this codebase, and by any similarly-sized
+// generic step) advances that term's phase by ~21,900 radians -- over 3000
+// full cycles within a single step. A forward/central-difference "gradient"
+// computed that way is therefore essentially noise, not a usable search
+// direction, for any gradient-based method. The closed-form derivative below
+// has no such step-size sensitivity.
 void Weierstrass::gradient_core(const Vec& x, Vec& g)
 {
-    // Numeric forward differences (consistent with other problems)
     const int D = static_cast<int>(x.size());
     g.assign(D, 0.0);
 
-    const double f0 = evaluate_core(x);
-    Vec xt = x;
+    if (!(a_ > 0.0 && a_ < 1.0) || !(b_ > 0.0) || kmax_ < 0) {
+        return; // matches evaluate_core's invalid-parameter guard (f = 1e12 there)
+    }
 
-    const double rel = 1e-6, abs = 1e-6;
     for (int i = 0; i < D; ++i) {
-        double h = std::max(abs, std::abs(x[i]) * rel);
-        xt[i] = x[i] + h;
-        const double fp = evaluate_core(xt);
-        g[i] = (fp - f0) / h;
-        xt[i] = x[i];
+        if (x[i] < -0.5 || x[i] > 0.5) {
+            g[i] = 0.0; // evaluate_core clamps here, so f is locally flat
+            continue;
+        }
+        const double xi = x[i];
+        double dterm = 0.0;
+        for (int k = 0; k <= kmax_; ++k) {
+            const double ak = std::pow(a_, k);
+            const double bk = std::pow(b_, k);
+            dterm += ak * bk * std::sin(2.0 * PI * bk * (xi + 0.5));
+        }
+        g[i] = -2.0 * PI * dterm;
     }
 }
 

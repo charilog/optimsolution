@@ -98,13 +98,13 @@ void Levy::gradient_core(const Vec& x, Vec& g)
             const double sinu = std::sin(u);
             const double B    = 1.0 + 10.0 * (sinu * sinu);
 
-            // dA/dx = (w-1)/2 * dw
-            const double dA   = (A * 0.5) * dw;
+            // dA/dx [of A^2] = 2*A * dw/dx = 2*A*dw
+            const double dA   = 2.0 * A * dw;
 
             // dB/dx = 10 * 2 sin(u)cos(u) * du/dx
             //       = 20 sin(u)cos(u) * (pi*dw)
-            //       = (5*pi/2) * sin(2u) * dw (γιατί 20*π*dw = 5π όταν dw=1/4)
-            const double dB   = (5.0 * pi / 2.0) * std::sin(2.0 * u) * dw;
+            //       = 10*pi*dw * sin(2u) = (5*pi/2) * sin(2u)  (dw=1/4 already folded in)
+            const double dB   = (5.0 * pi / 2.0) * std::sin(2.0 * u);
 
             gj += dA * B + A2 * dB;
         }
@@ -117,9 +117,9 @@ void Levy::gradient_core(const Vec& x, Vec& g)
             const double sv  = std::sin(v);
             const double B   = 1.0 + sv * sv;
 
-            const double dA  = (A * 0.5) * dw;
-            // d/dx [sin^2(v)] = sin(2v) * dv/dx, dv/dx = 2 pi * dw = pi/2
-            const double dB  = (pi / 2.0) * std::sin(2.0 * v) * dw;
+            const double dA  = 2.0 * A * dw;
+            // d/dx [sin^2(v)] = sin(2v) * dv/dx, dv/dx = 2 pi * dw = pi/2 (dw=1/4 already folded in)
+            const double dB  = (pi / 2.0) * std::sin(2.0 * v);
 
             gj += dA * B + A2 * dB;
         }

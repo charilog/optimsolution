@@ -9,20 +9,20 @@ namespace {
 }
 
 TersoffC::TersoffC()
-    : num_atoms_(10)
+    : num_atoms_(12)
     , D_(3 * num_atoms_ - 6)
     , A_(1830.8)
     , B_(471.18)
     , lambda1_(2.4799)
     , lambda2_(1.7322)
-    , beta_(1.15e-6)    
-    , n_(0.988)
+    , beta_(1.0999e-6)
+    , n_(0.78734)
     , c_(100390.0)
     , d_(16.217)
     , h_(-0.59825)
     , R_(2.85)
     , Dcut_(0.15)        // R-D=2.70, R+D=3.00
-    , lambda3_(0.0)      //  0 στο Si(C)
+    , lambda3_(1.7322)   // nonzero for Si(C) [Tersoff, PRB 38, 9902 (1988)]
     , m_(3)
 {
   
@@ -110,7 +110,13 @@ TersoffC::reconstruct_positions(const Vec& x) const {
 double TersoffC::fc(double r) const {
     if (r <= (R_ - Dcut_)) return 1.0;
     if (r >= (R_ + Dcut_)) return 0.0;
-    return 0.5 + 0.5 * std::cos(PI * (r - R_) / Dcut_);
+    // Standard Tersoff cutoff (Tersoff 1988/1989):
+    //   fc(r) = 1/2 - 1/2 * sin( (pi/2) * (r - R) / D )
+    // NOTE: a previous version used 0.5 + 0.5*cos(PI*(r-R)/D), which is
+    // discontinuous at r = R-D (jumps from 1 down to ~0 immediately inside
+    // the transition zone) and wrongly peaks at r = R instead of passing
+    // smoothly through 0.5 there.
+    return 0.5 - 0.5 * std::sin((PI / 2.0) * (r - R_) / Dcut_);
 }
 
 double TersoffC::VR(double r) const { return A_ * std::exp(-lambda1_ * r); }

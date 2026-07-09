@@ -7,7 +7,7 @@ namespace optimsolution {
 namespace { constexpr double PI = 3.141592653589793238462643383279502884; }
 
 TersoffB::TersoffB()
-: num_atoms_(10),
+: num_atoms_(12),
   D_(3 * num_atoms_ - 6),
   // ---- Si(B) parameters (from your reference) ----
   A_(1830.8),
@@ -109,7 +109,13 @@ TersoffB::reconstruct_positions(const Vec& x) const {
 double TersoffB::fc(double r) const {
     if (r <= (R_ - Dcut_)) return 1.0;
     if (r >= (R_ + Dcut_)) return 0.0;
-    return 0.5 + 0.5 * std::cos(PI * (r - R_) / Dcut_);
+    // Standard Tersoff cutoff (Tersoff 1988/1989):
+    //   fc(r) = 1/2 - 1/2 * sin( (pi/2) * (r - R) / D )
+    // NOTE: a previous version used 0.5 + 0.5*cos(PI*(r-R)/D), which is
+    // discontinuous at r = R-D (jumps from 1 down to ~0 immediately inside
+    // the transition zone) and wrongly peaks at r = R instead of passing
+    // smoothly through 0.5 there.
+    return 0.5 - 0.5 * std::sin((PI / 2.0) * (r - R_) / Dcut_);
 }
 
 double TersoffB::VR(double r) const { return A_ * std::exp(-lambda1_ * r); }
