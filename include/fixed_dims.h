@@ -33,6 +33,7 @@ inline int getFixedDimOrZero(std::string name) {
         {"hansen",       2},
         {"himmelblau",   2},
         {"schaffer",     2},  // Schaffer F6/F7 in the classic 2D form
+        {"shubert",      2},  // Shubert function (2D); Shubert::init() ignores dim, always D=2
 
         // Hartmann family (fixed by definition)
         {"hartmann3",    3},
@@ -67,9 +68,9 @@ inline int getFixedDimOrZero(std::string name) {
         {"bifunctionalcatalyst", 1},
 
         // Tersoff Potential for model Si (B) / (C)
-        // NOTE: this code uses D = 24 for both instances.
-        {"tersoffb",     24},
-        {"tersoffc",     24},
+        // CEC 2011 RWP3/RWP4: D = 30 (N = 12 atoms, D = 3N-6).
+        {"tersoffb",     30},
+        {"tersoffc",     30},
 
         // Spread Spectrum Radar Polyphase Code Design
         // Original CEC 2011 instance: 20 design parameters
@@ -100,15 +101,25 @@ inline int getFixedDimOrZero(std::string name) {
         {"ded1",         120},
         {"ded2",         216},
 
-        // Hydrothermal Scheduling (CEC 2011 instances)
-        // All CEC 2011 implementations use D = 96,
-        // so the generic "hydrothermal" is fixed at 96.
-        {"hydrothermal", 96},
+        // Hydrothermal Scheduling (smooth penalty model; see problems/hydrothermal.cpp)
+        // Hydrothermal::init() ignores the requested dim and always builds
+        // D = NG*T + NH*T with NG=3 thermal units, NH=2 hydro units, T=24
+        // hours => D = 3*24 + 2*24 = 120. (Earlier this table said 96, based
+        // on the classic CEC 2011 hydro-only instance, which does not match
+        // this implementation's decision vector — it also includes the
+        // thermal powers P_{i,t} as explicit decision variables.)
+        {"hydrothermal", 120},
 
         // Spacecraft trajectory problems (CEC 2011)
-        // Messenger (P29): D = 26
-        // Cassini 2 (P30): D = 22
-        {"messenger",    26},
+        // NOTE: Messenger here is a simplified surrogate ΔV model (see
+        // problems/messenger.cpp), not the full CEC 2011 P29 MGA-1DSM
+        // trajectory model. Messenger::init() ignores the requested dim and
+        // always calls Problem::init(14) — its decision vector is t0 + 5
+        // leg durations + 5 DSM fractions + rp + k1 + k2 = 14, not the
+        // literature's D=26. (Earlier this table said 26, which mismatched
+        // the actual object and would have misreported this problem's
+        // dimension anywhere fixedDimForProblem() is consulted.)
+        {"messenger",    14},
         {"cassini",      22},
 
         // Heat Exchanger Network design (CEC-style real-world): D = 22
@@ -120,8 +131,15 @@ inline int getFixedDimOrZero(std::string name) {
         // Uniform Linear Antenna Array (amplitude taper): default D = 10
         {"antennaula",         10},
 
-        // Alternate Polyphase code design instance (higher-D variant): D = 25
-        {"polyphase",          25},
+        // NOTE: an "Alternate Polyphase code design instance (higher-D
+        // variant, D=25)" entry used to live here with the SAME key
+        // "polyphase" as the entry above. std::unordered_map's
+        // initializer-list constructor silently keeps only the first
+        // inserted value for a duplicate key, so that second entry never
+        // actually took effect (dead code) and has been removed. Polyphase
+        // is registered only once in the factory, and its own init()
+        // already accepts any requested dimension (see polyphase.cpp), so
+        // there is no separate D=25 instance to register here.
 
         // Mean–Variance Portfolio Optimization (Markowitz): D = 10 assets
         {"portfoliomv",        10},
