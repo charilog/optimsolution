@@ -1,39 +1,64 @@
 #include "bucherastrigin.h"
 #include <cmath>
+#include <vector>
 
 namespace optimsolution {
 
 namespace {
     constexpr double PI = 3.14159265358979323846;
+
+    // Same T_osz transform used by gallagher101.cpp / attractivesector.cpp.
+    double tosz_scalar(double x)
+    {
+        if (x == 0.0)
+            return 0.0;
+        double sgn = (x > 0.0 ? 1.0 : -1.0);
+        double h   = std::log(std::abs(x));
+        double c1  = (x > 0.0 ? 10.0 : 5.5);
+        double c2  = (x > 0.0 ? 7.9  : 3.1);
+        return sgn * std::exp(h + 0.049 * (std::sin(c1 * h) + std::sin(c2 * h)));
+    }
+
+    // Standard BBOB boundary penalty, used by every other BBOB-style
+    // function in this codebase (gallagher101.cpp, the corrected
+    // attractivesector.cpp) but previously missing here.
+    double f_pen(const std::vector<double>& x)
+    {
+        double s = 0.0;
+        for (double xi : x) {
+            double a = std::abs(xi) - 5.0;
+            if (a > 0.0) s += a * a;
+        }
+        return s;
+    }
 }
 
 // -----------------------------------------------------------------------------
-// Buche–Rastrigin (BBOB-style deterministic variant)
+// Buche-Rastrigin (BBOB F4), faithful implementation.
 //
-// Classic definition:
+//   f(x) = 10*(D - sum_i cos(2*pi*z_i)) + sum_i z_i^2 + 100*f_pen(x)
+//   z_i  = s_i * T_osz(x_i)                                  (x_opt = 0)
+//   s_i  = 10 * 10^(0.5*i/(D-1))   if T_osz(x_i) > 0 AND i is ODD (1-indexed)
+//        =      10^(0.5*i/(D-1))   otherwise
 //
-//   f(x) = 10*D + sum_i [ z_i^2 - 10*cos(2π z_i) ]
-//
-// where:
-//   z_i = s_i * y_i
-//   y_i = x_i + bias_i   (here bias = 0 for deterministic version)
-//
-//   s_i = 10^( 0.5 * (i/(D-1)) )    // asymmetric scaling
-//
-//   Additionally, coordinates with x_i > 0 are stretched:
-//
-//   if (x_i > 0) z_i *= 10
-//
-// Global optimum:
-//   f* = 0  at x* = 0
-//
-// Domain:
-//   [-5, 5]^D (standard BBOB range)
-//
-// Properties:
-//   - multimodal
-//   - non-separable
-//   - asymmetric landscape
+// FIX vs. the previous version of this file, which was missing THREE parts
+// of the standard definition:
+//   1) T_osz was never applied to x_i before scaling (z_i = x_i * s_i
+//      directly) — T_osz is what gives every BBOB function its
+//      characteristic small-scale irregularity/roughness.
+//   2) The x10 stretch was applied to EVERY coordinate with x_i > 0, not
+//      only to ODD-indexed (1-indexed) ones. This "checkerboard" asymmetry
+//      across alternating dimensions is a defining, documented feature of
+//      Buche-Rastrigin specifically (it's what distinguishes it from a
+//      generically-asymmetric Rastrigin variant) — stretching every
+//      positive coordinate instead changes the function's conditioning
+//      pattern and difficulty substantially.
+//   3) The 100*f_pen(x) boundary penalty was entirely absent, so a search
+//      that stepped outside [-5,5]^D paid no explicit cost for it here
+//      (unlike every other BBOB-style function in this codebase).
+// The core algebraic identity 10*(D - sum cos(2*pi*z)) + sum z^2
+//   == 10*D + sum(z^2 - 10*cos(2*pi*z))
+// was already correct and is preserved.
 // -----------------------------------------------------------------------------
 
 BucheRastrigin::BucheRastrigin()
@@ -60,14 +85,16 @@ void BucheRastrigin::init(int dim)
     Vec xopt(dim, 0.0);
     setKnownGlobalOptimum(0.0, xopt);
 
-    // Precompute scaling factors s_i
+    // Precompute the base conditioning exponent 10^(0.5*i/(D-1)); the extra
+    // x10 factor for odd (1-indexed) coordinates with T_osz(x_i) > 0 is
+    // applied at evaluation time in evaluate_core(), since it depends on x.
     scale_.resize(dim);
     if (dim > 1) {
         for (int i = 0; i < dim; ++i)
             scale_[i] = std::pow(10.0, 0.5 * (double(i) / double(dim - 1)));
-    } 
-    else
+    } else if (dim == 1) {
         scale_[0] = 1.0;
+    }
 }
 
 double BucheRastrigin::evaluate_core(const Vec& x)
@@ -76,39 +103,50 @@ double BucheRastrigin::evaluate_core(const Vec& x)
     double sum = 0.0;
 
     for (int i = 0; i < D; ++i) {
-        double z = x[i] * scale_[i];
+        const double xt = tosz_scalar(x[i]);
 
-        // asymmetric stretch (BBOB variant)
-        if (x[i] > 0.0)
-            z *= 10.0;
+        // "i is odd" in the standard 1-indexed convention == "i is even"
+        // in this 0-indexed loop (i=0 <-> 1-indexed i=1, etc.).
+        const bool odd_1indexed = ((i % 2) == 0);
 
-        sum += (z*z - 10.0 * std::cos(2.0 * PI * z));
+        double s = scale_[i];
+        if (xt > 0.0 && odd_1indexed)
+            s *= 10.0;
+
+        const double z = s * xt;
+        sum += z * z - 10.0 * std::cos(2.0 * PI * z);
     }
 
-    return 10.0 * D + sum;
+    const double fval = 10.0 * D + sum + 100.0 * f_pen(x);
+
+    if (!(fval >= 0.0) || std::isnan(fval) || std::isinf(fval))
+        return 1e12;
+
+    return fval;
 }
 
 void BucheRastrigin::gradient_core(const Vec& x, Vec& g)
 {
+    // Numeric forward differences: T_osz's derivative is fiddly enough
+    // (and this is a derivative-free benchmark suite anyway, per
+    // gallagher101.cpp's same choice) that a finite-difference gradient is
+    // the safer, less error-prone option here.
     const int D = dimension();
     g.assign(D, 0.0);
 
-    for (int i = 0; i < D; ++i)
-    {
-        double base = x[i] * scale_[i];
-        double z = base;
+    const double f0 = evaluate_core(x);
+    Vec xt = x;
 
-        bool positive = (x[i] > 0.0);
-        if (positive)
-            z *= 10.0;
+    for (int k = 0; k < D; ++k) {
+        double h = std::max(1e-6, std::abs(x[k]) * 1e-6);
+        if (x[k] + h > 5.0)
+            h = std::min(h, 5.0 - x[k]);
+        if (h <= 0.0) { g[k] = 0.0; continue; }
 
-        // dz/dx = scale * (10 if x>0 else 1)
-        double dzdx = scale_[i] * (positive ? 10.0 : 1.0);
-
-        // derivative: d/dz( z^2 - 10*cos(2πz) )
-        double df_dz = 2.0 * z + 20.0 * PI * std::sin(2.0 * PI * z);
-
-        g[i] = df_dz * dzdx;
+        xt[k] = x[k] + h;
+        const double f1 = evaluate_core(xt);
+        g[k] = (f1 - f0) / h;
+        xt[k] = x[k];
     }
 }
 

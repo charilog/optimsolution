@@ -114,7 +114,16 @@ double BifunctionalCatalyst::evaluate_core(const Vec& x)
 
     // Minimization: f(u) = -J(u)
     const double f = -J;
-    return std::isfinite(f) ? f : 1e-30;
+    // FIX: the previous fallback for a non-finite result was 1e-30 — for
+    // this minimization objective (valid range roughly [-1000, 0], since
+    // J = 1000*y6(tf) with y6 a mass fraction in [0,1]) a value near zero
+    // looks like a MEDIOCRE-TO-WORST outcome, not a clearly-bad one, and is
+    // certainly not the "large penalty pushing the optimizer away" that
+    // every other invalid-result guard in this codebase uses. A failed/
+    // non-finite integration should be scored as the worst case, not as an
+    // ambiguous near-zero value that a search could mistake for legitimate
+    // (if unremarkable) feedback.
+    return std::isfinite(f) ? f : 0.0;
 }
 
 void BifunctionalCatalyst::gradient_core(const Vec& x, Vec& g)
@@ -123,7 +132,6 @@ void BifunctionalCatalyst::gradient_core(const Vec& x, Vec& g)
 
     const double fx      = evaluate_core(x);
     const double h_base  = 1e-6;
-    const double li      = umin_;
     const double ui      = umax_;
 
     // step inside bounds

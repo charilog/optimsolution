@@ -41,9 +41,18 @@ double GasCycle::evaluate_core(const Vec& x) {
 
     const double gamma = 1.4;
     const double r = P3 / P1;
-    const double eta = 1.0 - (1.0 / std::pow(r, (gamma - 1.0) / gamma)) * (T1 / T3);
 
-    return -eta; // maximize η
+    // FIX: the standard ideal simple-Brayton-cycle thermal efficiency
+    // depends on the pressure ratio ALONE. The previous formula multiplied
+    // by an extra (T1/T3) factor that does not belong here — it is
+    // demonstrably unphysical, exceeding the Carnot limit 1-T1/T3 at the
+    // box bounds (see gascycle.h for the numeric proof). T1 and T3 are
+    // still part of the decision vector (and still subject to the box
+    // penalty above) but no longer influence this objective directly —
+    // that is a property of the true ideal Brayton cycle, not an omission.
+    const double eta = 1.0 - (1.0 / std::pow(r, (gamma - 1.0) / gamma));
+
+    return -eta; // maximize eta
 }
 
 void GasCycle::gradient_core(const Vec& x, Vec& g) {
