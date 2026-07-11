@@ -59,6 +59,19 @@ inline int getFixedDimOrZero(std::string name) {
         {"cantileverbeam",   5},  // CantileverBeam::init() ignores dim, always D=5
         {"threebartruss",    2},  // ThreeBarTruss::init() ignores dim, always D=2
         {"geartrain",        4},  // GearTrain::init() ignores dim, always D=4
+
+        // Additional classic 2D benchmark functions (all fixed D=2)
+        {"eggholder",        2},
+        {"crossintray",      2},
+        {"holdertable",      2},
+        {"bukinn6",          2},
+        {"dropwave",         2},
+        {"langermann",       2},
+
+        // CEC 2013 niching benchmarks (inverted to minimization here)
+        // NOTE: Vincent is genuinely scalable (D chosen at init()), so it is
+        // intentionally NOT listed here -- only FiveUnevenPeakTrap is fixed.
+        {"fiveunevenpeaktrap", 1},
         {"schaffer",     2},  // Schaffer F6/F7 in the classic 2D form
         {"shubert",      2},  // Shubert function (2D); Shubert::init() ignores dim, always D=2
 
