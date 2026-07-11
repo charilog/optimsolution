@@ -32,6 +32,23 @@ inline int getFixedDimOrZero(std::string name) {
         {"goldstein",    2},  // Goldstein–Price
         {"hansen",       2},
         {"himmelblau",   2},
+        {"booth",        2},  // Booth::init() ignores dim, always D=2
+        {"beale",        2},  // Beale::init() ignores dim, always D=2
+        {"matyas",       2},  // Matyas::init() ignores dim, always D=2
+        {"mccormick",    2},  // McCormick::init() ignores dim, always D=2
+        {"colville",     4},  // Colville::init() ignores dim, always D=4
+
+        // Additional CEC/GTOP-style spacecraft trajectory surrogates
+        // (see cassini1.cpp / sagas.cpp / gtoc1.cpp / rosetta.cpp for the
+        // "surrogate ΔV model" disclaimer, same pattern as messenger/tandem)
+        {"cassini1",     6},   // Cassini1::init() ignores dim, always D=6
+        {"sagas",       12},   // Sagas::init() ignores dim, always D=12
+        {"gtoc1",        8},   // GTOC1::init() ignores dim, always D=8
+        {"rosetta",     22},   // Rosetta::init() ignores dim, always D=22
+
+        // Optimal control of a stirred tank reactor (CEC 2011 T04-style):
+        // D = 2*Nstages_ = 20 (10 stages, 2 controls per stage)
+        {"stirredtankreactor", 20},
         {"schaffer",     2},  // Schaffer F6/F7 in the classic 2D form
         {"shubert",      2},  // Shubert function (2D); Shubert::init() ignores dim, always D=2
 

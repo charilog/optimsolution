@@ -81,6 +81,13 @@ namespace optimsolution
         
         void setRunIndex(int r) { run_index_ = r; }
 
+        // Output stream for per-iteration progress lines (printBest).
+        // Defaults to std::cout. In OpenMP parallel-runs mode each run is
+        // given its own buffer so console output never interleaves between
+        // threads; buffered text is replayed in run order afterwards.
+        void setOutputStream(std::ostream* os) { out_ = (os ? os : &std::cout); }
+        std::ostream& out() const { return *out_; }
+
         Result run()
         {
             stop_.configure(topt_, pop_);
@@ -134,14 +141,15 @@ namespace optimsolution
         void printBest() const
         {
             const long long evals_now = prob_ ? prob_->calls() : 0;
-            std::cout << "[";
+            std::ostream& os = *out_;
+            os << "[";
             if (run_index_ >= 0) {
-                std::cout << "Run " << (run_index_ + 1) << " | ";
+                os << "Run " << (run_index_ + 1) << " | ";
             }
-            std::cout << "iter " << iters_
-                      << " | evals " << evals_now
-                      << "] best_f = " << std::setprecision(12) << std::fixed
-                      << best_f_ << "\n";
+            os << "iter " << iters_
+               << " | evals " << evals_now
+               << "] best_f = " << std::setprecision(12) << std::fixed
+               << best_f_ << "\n";
         }
 
         
@@ -184,6 +192,9 @@ namespace optimsolution
 
         // --- NEW: index of run for logging ---
         int         run_index_{-1};
+
+        // --- output sink for progress lines (never owned) ---
+        std::ostream* out_{&std::cout};
     };
 
 } // namespace optimsolution

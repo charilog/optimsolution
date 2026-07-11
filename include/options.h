@@ -12,6 +12,16 @@ struct GeneralOptions {
     unsigned long long seed_base = 1337ULL;
     int    runs         = 30;
 
+    // --- OpenMP parallelization of independent runs ---
+    // parallel_runs: 0 = serial (default, identical to previous behavior),
+    //                1 = execute independent runs in parallel with OpenMP.
+    // omp_threads:   0 = auto (OpenMP default), >0 = explicit thread count.
+    // Results are bit-identical to serial mode: every run keeps its own
+    // Problem instance, its own RNG seeded with seed_base + run_index, and
+    // console/CSV output is emitted in run order after completion.
+    bool   parallel_runs = false;
+    int    omp_threads   = 0;
+
 
     double success_tol  = 1e-8;
 
