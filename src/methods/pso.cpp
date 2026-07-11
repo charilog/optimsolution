@@ -102,68 +102,61 @@ void PSO::one_iteration(){
 
     std::uniform_real_distribution<double> U01(0.0, 1.0);
 
-    // --- DE TEMPLATE: "trial" state and GREEDY SELECTION ---
+    // Standard PSO: always adopt the new position so that X[i] can diverge
+    // from Pbest[i], making the cognitive term c1*(Pbest-X) non-zero and
+    // giving c1 a real effect on convergence behaviour.
+    // Previously the greedy-only-accept rule kept Pbest==X at all times,
+    // which made the c1 coefficient completely irrelevant.
     for (int i=0; i<pop_; ++i){
         const std::vector<double>& gb =
             (topology_ == "ring") ? Pbest_[neighborhoodBestIndex(i)] : Gbest_;
 
-        // Compute trial velocity/position
-        std::vector<double> vnew = V_[i];
-        std::vector<double> xnew = X_[i];
-
+        // Velocity update
         for (int j=0; j<D; ++j){
             double r1 = U01(rng_), r2 = U01(rng_);
-            vnew[j] = w_ * V_[i][j]
-                    + c1_ * r1 * (Pbest_[i][j] - X_[i][j])
-                    + c2_ * r2 * (gb[j]        - X_[i][j]);
+            V_[i][j] = w_  * V_[i][j]
+                     + c1_ * r1 * (Pbest_[i][j] - X_[i][j])
+                     + c2_ * r2 * (gb[j]         - X_[i][j]);
         }
-        clampVelocity(vnew);
-        for (int j=0; j<D; ++j) xnew[j] = X_[i][j] + vnew[j];
-        ensureBounds(xnew);
+        clampVelocity(V_[i]);
 
-        // Trial evaluation
-        double fnew = eval(xnew);
+        // Position update — always accepted (standard PSO)
+        for (int j=0; j<D; ++j) X_[i][j] += V_[i][j];
+        ensureBounds(X_[i]);
+        FX_[i] = eval(X_[i]);
 
-        // --- GREEDY SELECTION (as in DE): Accept ONLY if it improves ---
-        bool accepted = false;
-        if (fnew < FX_[i]) {
-            X_[i]  = std::move(xnew);
-            V_[i]  = std::move(vnew);
-            FX_[i] = fnew;
-            accepted = true;
+        // Update personal best only on improvement
+        if (FX_[i] < Fpbest_[i]) {
+            Fpbest_[i] = FX_[i];
+            Pbest_[i]  = X_[i];
 
-            // In-run local: ONLY after improvement (as in DE)
+            // In-run local search after personal-best improvement
             if (local_rate_ > 0.0 && !local_method_.empty()){
                 if (U01(rng_) < local_rate_){
                     auto [xloc, floc] = localSearch(local_method_, X_[i]);
                     if (floc < FX_[i]){
-                        X_[i]  = std::move(xloc);
-                        FX_[i] = floc;
+                        X_[i]       = std::move(xloc);
+                        FX_[i]      = floc;
+                        Fpbest_[i]  = FX_[i];
+                        Pbest_[i]   = X_[i];
                     }
                 }
             }
+        }
 
-            // Update personal/global best
-            if (FX_[i] < Fpbest_[i]) {
-                Fpbest_[i] = FX_[i];
-                Pbest_[i]  = X_[i];
-            }
-            if (FX_[i] < Fgbest_) {
-                Fgbest_ = FX_[i];
-                Gbest_  = X_[i];
-                best_f_ = Fgbest_;
-                best_x_ = Gbest_;
-            }
-        } else {
-            // Reject: keep X/FX as-is and "zero" the velocity (stability)
-            for (int j=0;j<D;++j) V_[i][j] *= 0.5;
+        // Update global best
+        if (FX_[i] < Fgbest_) {
+            Fgbest_ = FX_[i];
+            Gbest_  = X_[i];
+            best_f_ = Fgbest_;
+            best_x_ = Gbest_;
         }
 
         if (prob_->calls() >= max_evals_) break;
     }
 
     printBest();
-    updateStop(FX_); // Same as DE — the termination rule now works correctly
+    updateStop(FX_);
 }
 
 void PSO::end(){
