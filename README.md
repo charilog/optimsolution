@@ -25,37 +25,6 @@ omp_threads   = 0   ; 0 = use all available cores, N = cap at N threads
 
 Parallel execution is designed to be **numerically identical** to serial execution: every run keeps its own `Problem` instance and its own RNG seeded with `seed_base + run_index`, exactly as in the serial path, so turning `parallel_runs` on or off never changes the reported statistics — only the wall-clock time. Problems with non-thread-safe global state (the GKLS generator family) are automatically kept serial regardless of this setting, with a note printed to the console.
 
-### New methods
-- **`sparq`** and **`mscso`** (Modified Sand Cat Swarm Optimization, a multi-strategy-fusion variant of SCSO combining a good-point-set initialization, a nonlinear exploration/exploitation adjustment, and a Sparrow-Search-Algorithm-inspired early-warning step — see Peng et al., *Mathematics* 2024, 12, 2153).
-
-### New problems (32 added)
-
-**Twelve classic continuous benchmark functions:**
-`booth`, `beale`, `matyas`, `mccormick`, `colville`, `dixonprice`, `trid`, `powell`, `alpine1`, `salomon`, `whitley`, `perm`.
-
-**Six more classic low-dimensional benchmarks:**
-`eggholder`, `crossintray`, `holdertable`, `bukinn6`, `dropwave`, `langermann`.
-
-**Two niching / multimodal benchmarks** (from the CEC 2013 special session on niching methods, inverted here to minimization form):
-`vincent`, `fiveunevenpeaktrap`.
-
-**Five additional CEC/GTOP-style real-world problems** (spacecraft trajectory surrogate ΔV models, in the same style as the existing `messenger`/`tandem`/`cassini`, plus one optimal-control problem):
-`cassini1`, `sagas`, `gtoc1`, `rosetta`, `stirredtankreactor`.
-
-**Seven classic constrained mechanical engineering design benchmarks** — the standard set widely used to test metaheuristics on real design problems, each with soft-penalty constraint handling and a documented literature-optimum reference point:
-
-| Problem | D | Description | Known best |
-|---|---|---|---|
-| `weldedbeam` | 4 | Welded beam design (weld thickness/length, bar height/thickness) | f* ≈ 1.72485 |
-| `speedreducer` | 7 | Speed reducer / gearbox design (Golinski's problem) | f* ≈ 2994.47 |
-| `pressurevessel` | 4 | Pressure vessel design (shell/head thickness, radius, length) | f* ≈ 6059.71 |
-| `springdesign` | 3 | Tension/compression spring design | f* ≈ 0.012665 |
-| `cantileverbeam` | 5 | Cantilever beam design (5 hollow-square segments) | f* ≈ 1.33996 |
-| `threebartruss` | 2 | Three-bar truss design | f* ≈ 263.8958 |
-| `geartrain` | 4 | Gear train design (continuous relaxation) | f* ≈ 2.7e-12 |
-
-All 32 new problems were verified by finite-difference gradient checks and, where a closed-form or literature optimum exists, by confirming the objective value at (or near) that point. One transcription error was found and corrected along the way: the `speedreducer` problem's 11th constraint uses coefficient 1.1 (not 1.5, which would make the constraint set infeasible near the known optimum).
-
 ### Correctness fixes across several problems
 A systematic review of the problem library turned up and corrected a number of issues, including (non-exhaustive):
 - Analytic gradient errors (a mis-scaled term in `levy`, a missing contribution in `stepellipsoidal`, and a `weierstrass` gradient replaced with a closed-form derivative after its finite-difference version proved numerically unusable at the default parameters).
