@@ -11,7 +11,6 @@ void MSCSO::goodPointSet(int n, int z, std::vector<std::vector<double>>& F) cons
     F.assign(std::max(0, n), std::vector<double>(std::max(0, z), 0.0));
     if (z <= 0 || n <= 0) return;
 
-    // Step 1 (Eq. 9): smallest prime p with z <= (p-3)/2  <=>  p >= 2z+3
     auto is_prime = [](int v) {
         if (v < 2) return false;
         for (int d = 2; (long long)d * d <= v; ++d) {
@@ -22,14 +21,11 @@ void MSCSO::goodPointSet(int n, int z, std::vector<std::vector<double>>& F) cons
     int p = 2 * z + 3;
     while (!is_prime(p)) ++p;
 
-    // Step 2 (Eq. 10): r_j = 2*cos(2*pi*j/p), j = 1..z
     std::vector<double> r(z);
     for (int j = 1; j <= z; ++j) {
         r[j - 1] = 2.0 * std::cos(2.0 * MSCSO_PI * (double)j / (double)p);
     }
 
-    // Step 3 (Eq. 11): good point set F_k = ({k*r_1}, ..., {k*r_z}), k = 1..n
-    // ({.} denotes fractional part, giving a point in the unit cube [0,1]^z)
     for (int k = 1; k <= n; ++k) {
         for (int j = 0; j < z; ++j) {
             const double v = (double)k * r[j];
@@ -47,7 +43,6 @@ void MSCSO::init() {
     Xbest_.assign(D, 0.0);
     Fbest_ = std::numeric_limits<double>::infinity();
 
-    // Good point set population initialization (Eq. 12: x = lb + F*(ub-lb)).
     std::vector<std::vector<double>> F;
     goodPointSet(pop_, D, F);
 
