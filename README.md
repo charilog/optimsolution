@@ -2,7 +2,7 @@
   <img src="./docs/optimsolution.png" alt="Optimsolution logo" width="720">
 </p>
 
-Optimsolution (version 51) is a C++ optimization framework that combines a full-featured Qt-based GUI with a CLI for experimenting with population-based metaheuristics and numerical optimizers across benchmark and real-world problems. The GUI drives the complete workflow selecting methods and problems, configuring runs, launching batch experiments, visualizing convergence, and analyzing results through ranking tables and statistical tests while the CLI provides the same capabilities for scripted and headless execution. Both interfaces share the same optimization core and configuration file, and both support explicit computational budgets, multiple initialization strategies, local search integration, and sensitivity analysis of method and problem parameters.
+Optimsolution (version 52) is a C++ optimization framework that combines a full-featured Qt-based GUI with a CLI for experimenting with population-based metaheuristics and numerical optimizers across benchmark and real-world problems. The GUI drives the complete workflow selecting methods and problems, configuring runs, launching batch experiments, visualizing convergence, and analyzing results through ranking tables and statistical tests while the CLI provides the same capabilities for scripted and headless execution. Both interfaces share the same optimization core and configuration file, and both support explicit computational budgets, multiple initialization strategies, local search integration, and sensitivity analysis of method and problem parameters.
 
 > English manual: [optimsolution_manual_EN.pdf](./docs/optimsolutionManual_EN.pdf)
 >
@@ -10,18 +10,34 @@ Optimsolution (version 51) is a C++ optimization framework that combines a full-
 
 ---
 
-## 1) What changed from v48 to v51
+## 1) What changed from v51 to v52
 
-### Four run modes in the GUI
-The GUI now exposes four distinct run modes selectable from the **Run mode** combo:
+### OpenMP parallelization across every run mode
+Independent runs can now execute in parallel via OpenMP instead of strictly one-at-a-time. This applies uniformly to **all four run modes** — Single run, Batch run, and both Sensitivity analysis modes (method parameters and problem parameters) — since all of them are ultimately built on the same "N independent runs" execution path.
 
-1. **Single run** — executes one run of the selected method on the selected problem with the current settings. Produces a convergence plot and a run summary.
+Two new `[global]` settings control this:
 
-2. **Batch run (selected methods/problems)** — runs all selected methods against all selected problems for the configured number of runs. Results are aggregated into ranked comparison tables (Results, Best, Mean, Best Ranking, Mean Ranking, Final Ranking, Pairwise Wilcoxon, Friedman Ranking).
+```ini
+[global]
+parallel_runs = 0   ; 0 = serial (default), 1 = parallel independent runs
+omp_threads   = 0   ; 0 = use all available cores, N = cap at N threads
+```
 
-3. **Sensitivity analysis of method parameters** — sweeps one or more method parameters over a defined range while keeping the problem fixed. Produces a sensitivity table showing how each parameter value affects the result.
+Parallel execution is designed to be **numerically identical** to serial execution: every run keeps its own `Problem` instance and its own RNG seeded with `seed_base + run_index`, exactly as in the serial path, so turning `parallel_runs` on or off never changes the reported statistics — only the wall-clock time. Problems with non-thread-safe global state (the GKLS generator family) are automatically kept serial regardless of this setting, with a note printed to the console.
 
-4. **Sensitivity analysis of problem parameters** — sweeps one or more problem parameters (e.g. dimension, bounds) while keeping the method fixed. Useful for characterizing problem difficulty as a function of its own parameters.
+### New methods and problems
+- **1 new method**: `sparq`.
+- **17 new problems**, split across two batches:
+  - Twelve classic continuous benchmark functions: `booth`, `beale`, `matyas`, `mccormick`, `colville`, `dixonprice`, `trid`, `powell`, `alpine1`, `salomon`, `whitley`, `perm`.
+  - Five additional CEC/GTOP-style real-world problems: `cassini1`, `sagas`, `gtoc1`, `rosetta` (spacecraft trajectory surrogate ΔV models, in the same style as the existing `messenger`/`tandem`/`cassini`), and `stirredtankreactor` (a nonlinear stirred-tank-reactor optimal-control benchmark).
+
+### Correctness fixes across several problems
+A systematic review of the problem library turned up and corrected a number of issues, including (non-exhaustive):
+- Analytic gradient errors (a mis-scaled term in `levy`, a missing contribution in `stepellipsoidal`, and a `weierstrass` gradient replaced with a closed-form derivative after its finite-difference version proved numerically unusable at the default parameters).
+- A malformed objective function in `test30n` (an incorrect term combination that silently dropped part of the intended landscape).
+- An incorrect cutoff-function formula and mismatched reference parameters in `tersoffb`/`tersoffc`, plus a corrected default dimension (now D=30, matching the literature).
+- Several stale or duplicated entries in the fixed-dimension problem registry (affecting `hydrothermal`, `messenger`, `polyphase`, `shubert`, among others), which had been causing the GUI to report or enforce the wrong dimension for those problems.
+- A GUI/state bug where the Batch run **Results table** could go blank after a batch finished when exactly one problem was selected (the underlying result data was always safe on disk — this was purely a display/reconstruction issue).
 
 ### Code Wizard improvements
 The **Code Wizard** panel supports creating and deleting methods and problems directly from the GUI. When a new method or problem is generated or deleted, the application writes a pending-rebuild flag (`.rebuild_pending`) and prompts for a restart. On the next startup, if the flag is detected, the GUI offers to rebuild automatically before loading the factory — eliminating the LNK1104 locked-executable error that would otherwise occur on Windows.
@@ -41,7 +57,7 @@ or
 optimsolution <method> <problem> <dimension>
 ```
 
-### Methods (67)
+### Methods (68)
 
 #### Differential evolution and variants
 
@@ -63,6 +79,7 @@ optimsolution <method> <problem> <dimension>
 | `pde` | Parallel Differential Evolution |
 | `sade` | Self-adaptive Differential Evolution (SaDE) |
 | `sfcde` | Success-Failure Competitive Differential Evolution |
+| `sparq` | SPARQ Optimizer |
 | `tridentde` | TRIDENT Differential Evolution |
 | `ude` | Unified Differential Evolution |
 | `ude3` | Enhanced Unified Differential Evolution Algorithm 3 |
@@ -125,29 +142,32 @@ optimsolution <method> <problem> <dimension>
 | `lbfgs` | Limited-memory Broyden-Fletcher-Goldfarb-Shanno |
 | `nm` | Nelder-Mead Simplex |
 
-### Problems (93)
+### Problems (109)
 
 #### Classical and synthetic benchmarks
 
-`ackley`, `attractivesector`, `bohachevsky1`, `bohachevsky2`, `bohachevsky3`, `branin`,
-`bucherastrigin`, `camel`, `cigar`, `cosinemixture`, `differentpowers`, `diracproblem`, `easom`,
-`ellipsoidal`, `equalmaxima`, `expotential`, `gallagher101`, `gallagher21`, `goldstein`,
-`griewank`, `griewankrosenbrock`, `hansen`, `hartmann3`, `hartmann6`, `katsuura`, `levy`,
-`lunacekbirastrigin`, `michalewicz`, `potential`, `rastrigin`, `rastrigin2`, `rosenbrock`,
-`rotatedrosenbrock`, `schaffer`, `schwefel`, `shekel5`, `shekel7`, `shekel10`, `shubert`,
-`sinusoidal`, `sphere`, `stepellipsoidal`, `test2n`, `test30n`, `weierstrass`, `zakharov`
+`ackley`, `alpine1`, `attractivesector`, `beale`, `bohachevsky1`, `bohachevsky2`, `bohachevsky3`,
+`booth`, `branin`, `bucherastrigin`, `camel`, `cigar`, `colville`, `cosinemixture`,
+`differentpowers`, `diracproblem`, `dixonprice`, `easom`, `ellipsoidal`, `equalmaxima`,
+`expotential`, `gallagher101`, `gallagher21`, `goldstein`, `griewank`, `griewankrosenbrock`,
+`hansen`, `hartmann3`, `hartmann6`, `katsuura`, `levy`, `lunacekbirastrigin`, `matyas`,
+`mccormick`, `michalewicz`, `perm`, `potential`, `powell`, `rastrigin`, `rastrigin2`,
+`rosenbrock`, `rotatedrosenbrock`, `salomon`, `schaffer`, `schwefel`, `shekel5`, `shekel7`,
+`shekel10`, `shubert`, `sinusoidal`, `sphere`, `stepellipsoidal`, `test2n`, `test30n`, `trid`,
+`weierstrass`, `whitley`, `zakharov`
 
 #### Real-world and application-driven problems
 
-`antennaarray`, `antennaula`, `bifunctionalcatalyst`, `cassini`, `datacentercooling`, `ded1`, `ded2`,
-`eld1`, `eld2`, `eld3`, `eld4`, `eld5`, `fmsynth`, `gascycle`, `heatexchanger`, `himmelblau`,
-`hydrothermal`, `ik6dof`, `messenger`, `ofdmpower`, `polyphase`, `portfoliomv`, `smartportenergy`,
-`tandem`, `tersoffb`, `tersoffc`, `tnep`, `transmissionpricing`, `vibratingplatform`,
-`weatherirrigation`, `wirelesscoverage`
+`antennaarray`, `antennaula`, `bifunctionalcatalyst`, `cassini`, `cassini1`, `datacentercooling`,
+`ded1`, `ded2`, `eld1`, `eld2`, `eld3`, `eld4`, `eld5`, `fmsynth`, `gascycle`, `gtoc1`,
+`heatexchanger`, `himmelblau`, `hydrothermal`, `ik6dof`, `messenger`, `ofdmpower`, `polyphase`,
+`portfoliomv`, `rosetta`, `sagas`, `smartportenergy`, `stirredtankreactor`, `tandem`, `tersoffb`,
+`tersoffc`, `tnep`, `transmissionpricing`, `vibratingplatform`, `weatherirrigation`,
+`wirelesscoverage`
 
 #### GKLS test classes
 
-`gkls`, `gkls250`, `gkls350`, `gkls2100`
+`gkls250`, `gkls350`, `gkls2100`
 
 #### CEC 2022 representative functions
 
@@ -255,6 +275,8 @@ local_method     = lbfgs
 end_local_refine = 0
 end_local_method = lbfgs   ; bfgs / nm / gd
 summary_enable   = 1
+parallel_runs    = 0       ; 0 = serial, 1 = OpenMP-parallel independent runs (same results, either way)
+omp_threads      = 0       ; 0 = auto (all cores), N = cap at N threads
 
 [stop]
 rule = maxevals            ; bss|wss|tss|boss|srs|irs|doublebox|maxevals|all|none
@@ -297,6 +319,8 @@ The GUI and CLI share the same optimization core. The GUI adds four run modes, c
 | **Sensitivity analysis of method parameters** | Sweeps method parameters over a defined range (problem fixed). Shows how each parameter value affects the result. |
 | **Sensitivity analysis of problem parameters** | Sweeps problem parameters such as dimension or bounds (method fixed). Characterizes problem difficulty as a function of its own configuration. |
 
+All four modes can now run their independent repetitions in parallel via OpenMP (see [§5](#5-settings-optimsolutioncfg)), with results that are numerically identical to a fully serial run.
+
 ### Why the GUI is significantly faster than running the CLI directly
 
 Although both the GUI and CLI share the same optimization core, the GUI delivers substantially higher throughput for multi-run and batch experiments. The performance gap comes from several architectural decisions in the GUI:
@@ -313,7 +337,7 @@ Although both the GUI and CLI share the same optimization core, the GUI delivers
 
 **Automatic configuration consistency.** The GUI guarantees that every job in a batch uses exactly the same configuration snapshot. When running the CLI manually, configuration drift between runs (accidental edits to `.cfg`, different working directories, forgotten flags) is a common source of irreproducible results. The GUI eliminates this class of error entirely.
 
-The practical effect is that a batch experiment that would take several hours of manual CLI orchestration — launching processes, checking outputs, updating configuration, re-running failed jobs — can be completed in the same wall-clock time as the computations themselves, with no idle time between jobs.
+The practical effect is that a batch experiment that would take several hours of manual CLI orchestration — launching processes, checking outputs, updating configuration, re-running failed jobs — can be completed in the same wall-clock time as the computations themselves, with no idle time between jobs. With OpenMP parallel runs enabled on top of this, the computations themselves can now also make use of all available CPU cores.
 
 ### Code Wizard
 The Code Wizard panel (bottom-right) generates skeleton `.h` and `.cpp` files for new methods or problems, patches `factory.cpp` and `CMakeLists.txt` automatically, and triggers a rebuild on the next startup.
