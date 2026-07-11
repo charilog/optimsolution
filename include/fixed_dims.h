@@ -49,6 +49,16 @@ inline int getFixedDimOrZero(std::string name) {
         // Optimal control of a stirred tank reactor (CEC 2011 T04-style):
         // D = 2*Nstages_ = 20 (10 stages, 2 controls per stage)
         {"stirredtankreactor", 20},
+
+        // Classic constrained mechanical engineering design benchmarks
+        // (all fixed-dim; each init() ignores the requested dim)
+        {"weldedbeam",       4},  // WeldedBeam::init() ignores dim, always D=4
+        {"speedreducer",     7},  // SpeedReducer::init() ignores dim, always D=7
+        {"pressurevessel",   4},  // PressureVessel::init() ignores dim, always D=4
+        {"springdesign",     3},  // SpringDesign::init() ignores dim, always D=3
+        {"cantileverbeam",   5},  // CantileverBeam::init() ignores dim, always D=5
+        {"threebartruss",    2},  // ThreeBarTruss::init() ignores dim, always D=2
+        {"geartrain",        4},  // GearTrain::init() ignores dim, always D=4
         {"schaffer",     2},  // Schaffer F6/F7 in the classic 2D form
         {"shubert",      2},  // Shubert function (2D); Shubert::init() ignores dim, always D=2
 
