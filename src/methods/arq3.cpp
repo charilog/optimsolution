@@ -82,6 +82,14 @@ void ARQ3::configure(const MethodConfig& mc) {
     ide_progress_sync_    = mc.getInt("ide_progress_sync",  ide_progress_sync_);
     ide_strict_improve_   = mc.getInt("ide_strict_improve", ide_strict_improve_);
 
+    cr_sort_              = mc.getInt("crsort",             cr_sort_);
+    polish_trigger_       = mc.getInt("polishtrigger",      polish_trigger_);
+    polish_frac_          = mc.getDbl("polishfrac",         polish_frac_);
+    polish_budget_        = mc.getDbl("polishbudget",       polish_budget_);
+    rejuv_factor_         = mc.getInt("rejuvfactor",        rejuv_factor_);
+    rejuv_keep_           = mc.getDbl("rejuvkeep",          rejuv_keep_);
+    rejuv_cooldown_init_  = mc.getInt("rejuvcooldown",      rejuv_cooldown_init_);
+
     debug_                = mc.getInt("debug_arq", debug_);
 
     // Sanity clamps
@@ -116,6 +124,14 @@ void ARQ3::configure(const MethodConfig& mc) {
     if (agent_fraction_ <= 0.0 || agent_fraction_ > 1.0) agent_fraction_ = 1.0;
     ide_progress_sync_  = ide_progress_sync_  ? 1 : 0;
     ide_strict_improve_ = ide_strict_improve_ ? 1 : 0;
+    cr_sort_ = cr_sort_ ? 1 : 0;
+    if (polish_trigger_ < 1) polish_trigger_ = 1;
+    if (polish_frac_ <= 0.0 || polish_frac_ > 1.0) polish_frac_ = 0.10;
+    if (polish_budget_ < 0.0) polish_budget_ = 0.0;
+    if (polish_budget_ > 0.5) polish_budget_ = 0.5;
+    if (rejuv_factor_ < 2) rejuv_factor_ = 2;
+    if (rejuv_keep_ <= 0.0 || rejuv_keep_ >= 1.0) rejuv_keep_ = 0.25;
+    if (rejuv_cooldown_init_ < 0) rejuv_cooldown_init_ = 0;
 }
 
 // ============================================================================
@@ -185,6 +201,19 @@ void ARQ3::init() {
     B_rot_.clear();
     eig_valid_ = false;
     iters_since_eig_ = 0;
+
+    // UPGRADE state
+    ps_sigma_ = 0.02;
+    ps_sigma_c_ = 0.10;
+    rejuv_cooldown_ = 0;
+    polish_cooldown_ = 0;
+    polish_backoff_ = 0;
+    polish_used_ = 0;
+    polish_low_streak_ = 0;
+    polish_disabled_ = false;
+    polish_mark_f_ = std::numeric_limits<double>::infinity();
+    polish_mark_calls_ = 0;
+    polish_coord_ptr_ = 0;
 
     if (debug_) {
         std::fprintf(stdout,
@@ -634,6 +663,12 @@ void ARQ3::jacobiEigen(const Mat& Ain, Mat& V, std::vector<double>& w) const {
 void ARQ3::recomputeEigenBasis() {
     if (!prob_) { eig_valid_ = false; return; }
     const int D = prob_->dimension();
+    // FIX (omission): the Jacobi decomposition is O(D^3) per sweep with up to
+    // 50 sweeps; without a dimensionality cap a single basis refresh at
+    // D = 200 costs ~10^10 operations and dominates the entire run. EA4Eig
+    // caps the eigen machinery at D <= 100 for exactly this reason; above the
+    // cap the crossover silently falls back to classical binomial.
+    if (D > 100) { eig_valid_ = false; return; }
     const int N = (int)X_.size();
     int top = std::max(D + 2, (int)std::round(eig_frac_ * (double)N));
     if (top > N) top = N;
@@ -670,6 +705,18 @@ void ARQ3::recomputeEigenBasis() {
 
     std::vector<double> w;
     jacobiEigen(C, B_rot_, w);
+    // UPGRADE (B'): keep per-axis sqrt(eigenvalue) scales so the elite polish
+    // can sample ANISOTROPIC Gaussian steps aligned with the population shape
+    // (long steps along the valley, short across it).
+    eig_scale_.assign(D, 1.0);
+    double wmax = 0.0;
+    for (double v : w) wmax = std::max(wmax, std::fabs(v));
+    if (wmax > 0.0) {
+        for (int j = 0; j < D; ++j) {
+            double s = std::sqrt(std::max(0.0, w[j]) / wmax);
+            eig_scale_[j] = std::min(1.0, std::max(0.05, s));
+        }
+    }
     eig_valid_ = true;
     iters_since_eig_ = 0;
 }
@@ -941,12 +988,34 @@ void ARQ3::stepARQ() {
     std::vector<double> SF, SCR, SG;
     int attempts = 0, successes = 0;
 
+    // UPGRADE (A) — NL-SHADE-RSP CR sorting: pre-sample one (F,CR) pair per
+    // selected parent, then reassign the CR values so that better-ranked
+    // parents receive SMALLER crossover rates (fine, conservative moves near
+    // the top of the population; aggressive recombination at the bottom).
+    // This is the ingredient that gave NL-SHADE-LBC its consistency edge on
+    // rugged landscapes; F stays paired with its memory draw.
+    std::vector<double> Fs(m), CRs(m);
+    for (int t = 0; t < m; ++t) sampleFCR(Fs[t], CRs[t]);
+    if (cr_sort_) {
+        std::vector<int> rankpos(N, 0);
+        for (int rpos = 0; rpos < N; ++rpos) rankpos[ord[rpos]] = rpos;
+        // rank order of the selected parents (best first)
+        std::vector<int> psel(m);
+        std::iota(psel.begin(), psel.end(), 0);
+        std::sort(psel.begin(), psel.end(),
+                  [&](int a, int b){ return rankpos[parents[a]] < rankpos[parents[b]]; });
+        std::vector<double> crs_sorted = CRs;
+        std::sort(crs_sorted.begin(), crs_sorted.end());
+        std::vector<double> CRas(m);
+        for (int q = 0; q < m; ++q) CRas[psel[q]] = crs_sorted[q];
+        CRs.swap(CRas);
+    }
+
     for (int t = 0; t < m; ++t) {
         if (prob_->calls() >= max_evals_) break;
         int i = parents[t];
 
-        double F, CR;
-        sampleFCR(F, CR);
+        double F = Fs[t], CR = CRs[t];
 
         Vec u(D, 0.0);
         makeTrialARQ(i, ord, F, CR, u);
@@ -1240,6 +1309,283 @@ void ARQ3::oblBasinEscape() {
 }
 
 // ============================================================================
+// UPGRADE (B): stagnation-gated elite (1+1)-ES polish with 1/5 success rule.
+// Deep exploitation around the incumbent best: a short burst of Gaussian
+// trials with a self-adaptive step size (success -> sigma up, failure ->
+// sigma down; ~1/5 rule). Fired only while the main loop is not improving, so
+// it costs nothing when evolution is making progress. Improvements are also
+// written into the population's worst slot so they propagate.
+// ============================================================================
+void ARQ3::elitePolish() {
+    if (!prob_ || best_x_.empty() || polish_disabled_) return;
+    const double f_before = best_f_;
+    // Efficiency of the evolutionary loop since the last polish activation
+    // (gain per evaluation); the polish must beat this to keep its budget.
+    double evo_eff = std::numeric_limits<double>::infinity();
+    if (std::isfinite(polish_mark_f_)) {
+        const double evo_gain  = std::max(0.0, polish_mark_f_ - best_f_);
+        const double evo_evals = (double)std::max<long long>(
+            1, (long long)prob_->calls() - polish_mark_calls_);
+        evo_eff = evo_gain / evo_evals;
+    }
+    const long long used_before = polish_used_;
+    const int N = (int)X_.size();
+    const int D = prob_->dimension();
+    const Vec& L = prob_->lb();
+    const Vec& U = prob_->ub();
+
+    // Burst budget: proportional to N, but never trivial; terminate early
+    // after a streak of failures so budget is not wasted when nothing works.
+    int k = std::max(6, (int)std::round(polish_frac_ * (double)N));
+    // In the exploitation tail the burst scales with the DIMENSION: the
+    // round-robin coordinate sweep must be able to cover the space within a
+    // reasonable number of bursts (a 12-eval burst covers ~4 coordinates —
+    // hopeless at D = 200). The global 8%-of-budget cap still applies.
+    if (progress01() > 0.80) k = std::max(k, std::min(std::max(12, D), 64));
+    int fail_streak = 0;
+    int wins = 0;
+
+    for (int t = 0; t < k; ++t) {
+        if (prob_->calls() >= max_evals_) return;
+        if (fail_streak >= 10) break;
+        // Hard budget cap: the polish may never consume more than
+        // polish_budget_ of the evaluations spent so far. On landscapes where
+        // refinement is cheapily productive this cap is never binding; on
+        // far-basin landscapes it guarantees the evolutionary loop keeps
+        // >= (1 - polish_budget_) of the budget no matter what.
+        if ((double)polish_used_ >
+            polish_budget_ * (double)std::max(1, (int)prob_->calls())) break;
+
+        Vec cand = best_x_;
+        const double mode = randU();
+        if (mode < 0.30) {
+            // (i) single-coordinate probe: repairs "one dimension off" local
+            // minima (Rastrigin/Styblinski/Tersoff-type lattices) one axis at
+            // a time. Half the probes are COORDINATE OPPOSITIONS
+            // (x_j -> lo+hi-x_j), which jump directly to the mirror basin of
+            // bistable dimensions; the other half are adaptive Gaussian steps.
+            // Round-robin sweep guarantees every coordinate is visited, which
+            // matters in high dimension (random picks leave dimensions
+            // uncovered for a long time at D = 200).
+            int j = polish_coord_ptr_;
+            polish_coord_ptr_ = (polish_coord_ptr_ + 1) % D;
+            double lo = (j < (int)L.size() ? L[j] : -1.0);
+            double hi = (j < (int)U.size() ? U[j] :  1.0);
+            if (lo > hi) std::swap(lo, hi);
+            if (randU() < 0.5) cand[j] = lo + hi - cand[j];
+            else cand[j] += ps_sigma_c_ * (hi - lo) * gaussN(0.0, 1.0);
+        } else if (mode < 0.80 && (int)eig_scale_.size() == D
+                   && (int)B_rot_.size() == D) {
+            // NOTE: the polish deliberately uses the LAST KNOWN basis even
+            // when eig_valid_ is false (late populations of size < D+2 cannot
+            // refresh it). A slightly stale rotation is far better than
+            // axis-aligned probing on rotated landscapes.
+            // (ii) anisotropic full-D step aligned with the population shape
+            Vec z(D);
+            for (int j = 0; j < D; ++j)
+                z[j] = ps_sigma_ * eig_scale_[j] * gaussN(0.0, 1.0);
+            Vec step;
+            applyB(B_rot_, z, step);
+            for (int j = 0; j < D; ++j) {
+                double lo = (j < (int)L.size() ? L[j] : -1.0);
+                double hi = (j < (int)U.size() ? U[j] :  1.0);
+                if (lo > hi) std::swap(lo, hi);
+                cand[j] += (hi - lo) * step[j];
+            }
+        } else {
+            // (iii) isotropic full-D step
+            for (int j = 0; j < D; ++j) {
+                double lo = (j < (int)L.size() ? L[j] : -1.0);
+                double hi = (j < (int)U.size() ? U[j] :  1.0);
+                if (lo > hi) std::swap(lo, hi);
+                cand[j] += ps_sigma_ * (hi - lo) * gaussN(0.0, 1.0);
+            }
+        }
+        ensureBounds(cand);
+        double fc = eval(cand);
+        ++polish_used_;
+        if (fc < best_f_) {
+            best_f_ = fc;
+            best_x_ = cand;
+            fail_streak = 0;
+            ++wins;
+            if (mode < 0.30) ps_sigma_c_ *= 1.5; else ps_sigma_ *= 1.5;
+            // Injection: the improvement replaces the population's current
+            // worst. This (a) propagates the corrected structure into the
+            // mutation pool and (b) keeps similarity-based stopping rules
+            // (doublebox) alive for as long as the polish keeps producing
+            // real progress — without it, a converged population terminates
+            // the run while refinement is still paying off. Diversity damage
+            // is bounded by the polish budget cap and the efficiency
+            // arbitration below.
+            int worst = 0;
+            for (int i = 1; i < N; ++i) if (FX_[i] > FX_[worst]) worst = i;
+            archivePush(X_[worst]);
+            X_[worst]  = cand;
+            FX_[worst] = fc;
+        } else {
+            ++fail_streak;
+            if (mode < 0.30) ps_sigma_c_ *= 0.90; else ps_sigma_ *= 0.87;
+        }
+        if (ps_sigma_  < ps_sigma_min_) ps_sigma_  = ps_sigma_min_;
+        if (ps_sigma_  > ps_sigma_max_) ps_sigma_  = ps_sigma_max_;
+        if (ps_sigma_c_ < 1e-7) ps_sigma_c_ = 1e-7;
+        if (ps_sigma_c_ > 0.5)  ps_sigma_c_ = 0.5;
+    }
+
+    // Exponential backoff: on landscapes where local refinement of the
+    // incumbent is systematically useless (the next better basin is FAR away,
+    // e.g. Schwefel-type), a fruitless activation doubles the cooldown, so
+    // the eval budget flows back to the evolutionary loop. Any success resets
+    // the backoff, so on refinement-friendly landscapes the polish stays hot.
+    if (wins == 0) {
+        polish_backoff_ = std::min(16, std::max(2, polish_backoff_ * 2));
+        polish_cooldown_ = polish_backoff_;
+    } else {
+        polish_backoff_ = 0;
+    }
+
+    // Operator-efficiency arbitration: if this burst produced less gain per
+    // evaluation than the evolutionary loop achieved since the last burst,
+    // the evolution is the better investment — stand down for a while. This
+    // is what shuts the polish out on far-basin landscapes (Schwefel-type),
+    // where the tail evolution still makes large hops that dwarf any local
+    // refinement, without any hand-tuned landscape detection.
+    {
+        const double pol_gain  = std::max(0.0, f_before - best_f_);
+        const double pol_evals = (double)std::max<long long>(1, polish_used_ - used_before);
+        const double pol_eff   = pol_gain / pol_evals;
+        if (std::isfinite(evo_eff) && pol_eff < evo_eff) {
+            polish_cooldown_ = std::max(polish_cooldown_, 32);
+        }
+    }
+    polish_mark_f_     = best_f_;
+    polish_mark_calls_ = (long long)prob_->calls();
+
+    // Landscape self-selection: if the VALUE of the polish is negligible
+    // (relative gain < polish_min_relgain_ for two consecutive activations),
+    // switch it off permanently for this run. On far-basin landscapes
+    // (Schwefel-type) the polish produces frequent-but-worthless micro-wins
+    // that keep it "hot" while starving the evolutionary loop; measuring the
+    // payoff instead of the win count shuts it down after ~2 bursts. On
+    // refinement-friendly landscapes (Rastrigin lattices, narrow valleys,
+    // molecular PES) the gains are orders of magnitude above the threshold.
+    const double denom = std::max(1.0, std::fabs(f_before));
+    const double relgain = (f_before - best_f_) / denom;
+    if (relgain < polish_min_relgain_) {
+        // A LONG cooldown instead of a permanent switch-off: with the
+        // stagnation-driven activation the polish may fire early in the run,
+        // where micro-gains are normal; a permanent disable there would rob
+        // the exploitation tail of its refinement engine. The cooldown keeps
+        // useless polishing shut out for a long stretch while always allowing
+        // a fresh attempt later in the run.
+        // Mild penalty: the round-robin coordinate sweep legitimately needs
+        // many bursts to cover a high-dimensional space (at D = 200 only a
+        // few probes per burst land on any given coordinate), so most bursts
+        // are "fruitless" by construction while the sweep is mid-cycle. A
+        // heavy lockout here was measured to starve the polish to ~0.2% of
+        // the budget and cost the final coordinate fixes entirely.
+        if (++polish_low_streak_ >= 4) {
+            polish_cooldown_ = std::max(polish_cooldown_, 64);
+            polish_low_streak_ = 0;
+        }
+    } else {
+        polish_low_streak_ = 0;
+    }
+}
+
+// ============================================================================
+// UPGRADE (C): hard-stagnation rejuvenation (partial restart). When the run
+// has been stuck for rejuv_factor_ * stag_trigger_ iterations (i.e. well past
+// the point where quarantine/OBL could help), the worst (1 - rejuv_keep_)
+// fraction is re-initialised uniformly, their IDE parameters are re-seeded,
+// the SHADE memory is reset (terminal slot preserved) and the polish step is
+// re-opened. This rescues the stuck runs that drag the MEAN down while never
+// touching the elite (the best-so-far is preserved by construction).
+// ============================================================================
+void ARQ3::rejuvenate() {
+    if (rejuv_cooldown_ > 0) { --rejuv_cooldown_; return; }
+    if (!prob_) return;
+    const int N = (int)X_.size();
+    if (N < 4) return;
+
+    // Two firing modes:
+    //  (1) hard stagnation (the original trigger), and
+    //  (2) SURVIVAL (IPOP-style): the population's relative fitness spread
+    //      has collapsed to ~zero. Similarity-based stopping rules
+    //      (doublebox) terminate such a run within a few iterations, killing
+    //      it at the FIRST converged basin — long before the budget is spent
+    //      and while refinement/restarts are still profitable. Re-seeding the
+    //      worst part of the population revives the spread, so the run stays
+    //      alive under ANY stopping rule for exactly as long as it keeps
+    //      producing progress (the classic IPOP-CMA-ES rationale).
+    double flo = FX_[0], fhi = FX_[0];
+    for (double v : FX_) { flo = std::min(flo, v); fhi = std::max(fhi, v); }
+    const double frel = (fhi - flo) / std::max(1.0, std::fabs(flo));
+    // The detection threshold must be LOOSER than any plausible similarity
+    // stopping rule (typically ~1e-8), otherwise the run is terminated before
+    // the survival restart can fire.
+    const bool collapsed = (frel < 1e-6) ||
+                           (normalizedPopSpread() < std::max(1e-4, var_collapse_ratio_));
+    const bool survival  = collapsed;
+    const bool hard_stag = (no_improve_ >= rejuv_factor_ * stag_trigger_) &&
+                           (progress01() <= 0.90) &&
+                           (normalizedPopSpread() <= 10.0 * var_collapse_ratio_);
+    if (!survival && !hard_stag) return;
+    const int D = prob_->dimension();
+
+    std::vector<int> ord(N);
+    std::iota(ord.begin(), ord.end(), 0);
+    std::sort(ord.begin(), ord.end(),
+              [&](int a, int b){ return FX_[a] < FX_[b]; });
+
+    // Survival mode re-seeds only a SLIVER of the population: its job is to
+    // keep the fitness spread non-degenerate for similarity-based stopping
+    // rules, and a handful of fresh points suffices. Re-seeding 75% here (as
+    // the hard-stagnation mode does) was measured to drain hundreds of
+    // thousands of evaluations into random points over a long run.
+    const int keep = survival
+        ? (N - std::max(2, (int)std::ceil(0.05 * (double)N)))
+        : std::max(2, (int)std::round(rejuv_keep_ * (double)N));
+    const Vec& L = prob_->lb();
+    const Vec& U = prob_->ub();
+
+    for (int t = keep; t < N; ++t) {
+        if (prob_->calls() >= max_evals_) break;
+        int idx = ord[t];
+        Vec cand(D);
+        for (int j = 0; j < D; ++j) {
+            double lo = (j < (int)L.size() ? L[j] : -1.0);
+            double hi = (j < (int)U.size() ? U[j] :  1.0);
+            if (lo > hi) std::swap(lo, hi);
+            cand[j] = lo + (hi - lo) * randU();
+        }
+        archivePush(X_[idx]);
+        X_[idx]  = std::move(cand);
+        FX_[idx] = eval(X_[idx]);
+        sampleIDEParamsAt(idx);
+        if (FX_[idx] < best_f_) { best_f_ = FX_[idx]; best_x_ = X_[idx]; }
+    }
+
+    // NOTE: the SHADE memory is deliberately PRESERVED — it encodes F/CR
+    // statistics that remain useful for the refreshed population; resetting it
+    // proved harmful on boundary-optimum landscapes (Schwefel-type).
+    eig_valid_ = false;
+    iters_since_eig_ = 0;
+    if (survival) {
+        // Survival restarts fire repeatedly (each converged basin triggers
+        // one) and must NOT touch the stagnation bookkeeping: no_improve_
+        // drives the elite polish, and zeroing it here starves the very
+        // refinement engine the restart is buying time for.
+        rejuv_cooldown_ = 10;
+    } else {
+        ps_sigma_ = 0.02;       // re-open the polish step
+        no_improve_ = 0;
+        rejuv_cooldown_ = rejuv_cooldown_init_;
+    }
+}
+
+// ============================================================================
 // one_iteration (main loop body)
 // ============================================================================
 void ARQ3::one_iteration() {
@@ -1277,8 +1623,30 @@ void ARQ3::one_iteration() {
         ++no_improve_;
     }
 
+    // UPGRADE (B): elite polish while the main loop is stagnating; in the
+    // exploitation tail the trigger drops to a single stagnant iteration
+    // (never unconditional, so a still-improving evolution keeps its budget).
+    // Polish activation is STAGNATION-DRIVEN, not budget-driven. Frameworks
+    // that terminate on population similarity (doublebox) may stop a run long
+    // before 75% of max_evals is consumed, so a progress-gated polish would
+    // simply never fire there; the stagnation counter works under any
+    // stopping rule. In the budget tail the trigger additionally drops to a
+    // single stagnant iteration for deep final refinement.
+    {
+        const int trig = (progress01() > 0.75) ? 1 : polish_trigger_;
+        if (polish_cooldown_ > 0) {
+            --polish_cooldown_;
+        } else if (no_improve_ >= trig) {
+            elitePolish();
+        }
+    }
+    if (best_f_ < best_prev_ - 1e-18) { best_prev_ = best_f_; no_improve_ = 0; }
+
     // On-demand OBL (only after enough stagnation + variance collapse)
     oblBasinEscape();
+
+    // UPGRADE (C): hard-stagnation partial restart
+    rejuvenate();
 
     // NLPSR shrink (end of iteration so all indices above are still valid)
     int Ntarget = targetPopulationSize();

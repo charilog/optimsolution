@@ -51,8 +51,12 @@ public:
         };
 
         // DE params
-        F_  = parse_double(mc.getStr("F",  std::to_string(F_)),  F_);
-        CR_ = parse_double(mc.getStr("CR", std::to_string(CR_)), CR_);
+        // ConfigFile normalises all keys to lowercase on load, so use
+        // lowercase "f"/"cr" here — "F"/"CR" were never found, causing DE to
+        // always use the hard-coded defaults (0.6/0.9) and making F/CR
+        // sensitivity sweeps produce identical results for every value.
+        F_  = parse_double(mc.getStr("f",  std::to_string(F_)),  F_);
+        CR_ = parse_double(mc.getStr("cr", std::to_string(CR_)), CR_);
 
         // In-run local (aliases)
         std::string lm = mc.getStr("local_method",

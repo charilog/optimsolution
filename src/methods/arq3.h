@@ -101,6 +101,7 @@ private:
     int    eig_period_{10};
     double eig_frac_{0.50};
     Mat    B_rot_;                   // D x D eigenvectors (columns)
+    Vec    eig_scale_;               // per-axis sqrt(eigenvalue) scales in [0.05,1]
     bool   eig_valid_{false};
     int    iters_since_eig_{0};
     int    eig_min_D_{2};
@@ -149,6 +150,39 @@ private:
     // agent_fraction (how many parents to try per ARQ pass)
     // ------------------------------------------------------------
     double agent_fraction_{1.0};     // default: evaluate all parents
+
+    // ------------------------------------------------------------
+    // UPGRADE: NL-SHADE-RSP CR sorting (smaller CR to better-ranked parents)
+    // ------------------------------------------------------------
+    int    cr_sort_{1};
+
+    // ------------------------------------------------------------
+    // UPGRADE: stagnation-gated elite (1+1)-ES polish with 1/5 success rule
+    // ------------------------------------------------------------
+    int    polish_trigger_{5};       // no_improve_ iterations before polishing
+    double polish_frac_{0.10};       // evals per activation = frac * N
+    double ps_sigma_{0.02};          // adaptive step (relative to box range)
+    double ps_sigma_c_{0.10};        // adaptive step for single-coordinate mode
+    double ps_sigma_min_{1e-9};
+    double ps_sigma_max_{0.25};
+    int    polish_cooldown_{0};      // exponential backoff when polish keeps failing
+    int    polish_backoff_{0};
+    long long polish_used_{0};       // total evals consumed by the polish
+    double polish_budget_{0.12};     // hard cap: fraction of consumed budget
+    int    polish_low_streak_{0};    // consecutive low-value activations
+    bool   polish_disabled_{false};  // one-way landscape self-selection
+    double polish_min_relgain_{1e-3};
+    int    polish_coord_ptr_{0};     // round-robin coordinate sweep pointer
+    double polish_mark_f_{std::numeric_limits<double>::infinity()};
+    long long polish_mark_calls_{0};
+
+    // ------------------------------------------------------------
+    // UPGRADE: hard-stagnation rejuvenation (partial restart)
+    // ------------------------------------------------------------
+    int    rejuv_factor_{4};         // trigger at rejuv_factor_ * stag_trigger_
+    double rejuv_keep_{0.25};        // elite fraction preserved
+    int    rejuv_cooldown_init_{150};
+    int    rejuv_cooldown_{0};
 
     // ------------------------------------------------------------
     // IDE scheduling (from EA4Eig IDE strategy)
@@ -236,6 +270,8 @@ private:
     static double quantile(std::vector<double> v, double q01);
     void   quarantineLevy();
     void   oblBasinEscape();
+    void   elitePolish();            // UPGRADE (B)
+    void   rejuvenate();             // UPGRADE (C)
 
     // IDE parameter re-seed / inherit
     void   sampleIDEParamsAt(int idx);
