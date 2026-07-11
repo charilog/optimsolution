@@ -13,7 +13,15 @@ namespace optimsolution {
 //
 // Properties:
 //   - unimodal
-//   - non-separable (dimension-dependent exponents)
+//   - separable: each term depends only on its own x_i (the exponent p_i
+//     is a fixed, precomputed per-dimension constant — it does not depend
+//     on any other coordinate), so the function decomposes into D
+//     independent 1-D problems. The dimension-DEPENDENT exponent affects
+//     conditioning/difficulty, not separability; the previous version's
+//     "non-separable (dimension-dependent exponents)" label was a
+//     contradiction — a function this codebase treats consistently
+//     elsewhere (e.g. differing per-unit coefficients in the ELD/DED family
+//     don't make those separable terms non-separable either).
 // -----------------------------------------------------------------------------
 
 DifferentPowers::DifferentPowers()
@@ -21,7 +29,7 @@ DifferentPowers::DifferentPowers()
     setName("differentpowers");
     setFullName("Different Powers function");
     setModality("unimodal");
-    setSeparability("non-separable");
+    setSeparability("separable");
     setCategory("continuous benchmark test function");
 
     setKnownGlobalOptimum(0.0);
