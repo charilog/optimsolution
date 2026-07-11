@@ -108,6 +108,11 @@ Config Config::load(const std::string &path, const std::string &methodName)
     try { c.g.seed_base = (unsigned long long)std::stoull(getStr("global", "seed_base", std::to_string(c.g.seed_base))); } catch (...) {}
     c.g.runs        = getInt("global", "runs",        c.g.runs);
 
+    // OpenMP parallel runs (safe: independent runs, deterministic per-run seeds)
+    c.g.parallel_runs = getInt("global", "parallel_runs", c.g.parallel_runs ? 1 : 0) != 0;
+    c.g.omp_threads   = getInt("global", "omp_threads",   c.g.omp_threads);
+    if (c.g.omp_threads < 0) c.g.omp_threads = 0;
+
     // final local search (in end())
     {
         int elr = getInt("global", "end_local_refine", 0);

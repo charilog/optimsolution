@@ -1,3 +1,6 @@
+#ifdef OPTIM_HAVE_OPENMP
+#include <omp.h>
+#endif
 #include "sensitivity.h"
 #include "factory.h"
 #include "optimizer.h"
@@ -147,31 +150,25 @@ namespace optimsolution
             }
 
             const int RUNS = cfg.g.runs;
-            std::vector<double> best_vals;
-            best_vals.reserve(RUNS);
-            std::vector<double> eval_counts;
-            eval_counts.reserve(RUNS);
+            std::vector<double> best_vals((size_t)RUNS, 0.0);
+            std::vector<double> eval_counts((size_t)RUNS, 0.0);
             int success = 0;
 
             int effective_pop = -1;
+            int sens_error = 0; // 4 = unknown problem, 5 = unknown method
 
-            for (int r = 0; r < RUNS; ++r)
-            {
+            // One sensitivity run: fully independent (own Problem, own
+            // optimizer, deterministic per-run seed). Results are written
+            // into index-addressed slots so serial and OpenMP-parallel
+            // execution produce identical numbers.
+            auto runOne = [&](int r, std::ostream* sink) -> int {
                 auto prob = makeProblem(problem);
-                if (!prob)
-                {
-                    std::cerr << "Unknown problem: " << problem << "\n";
-                    return 4;
-                }
+                if (!prob) return 4;
                 prob->init(dim);
                 prob->setMaxEvaluations(cfg.g.max_evals);
 
                 auto opt = makeMethod(method);
-                if (!opt)
-                {
-                    std::cerr << "Unknown method: " << method << "\n";
-                    return 5;
-                }
+                if (!opt) return 5;
 
                 opt->setProblem(prob.get());
                 opt->setSeed(cfg.g.seed_base + (unsigned long long)r);
@@ -179,16 +176,64 @@ namespace optimsolution
                 opt->setTermination(cfg.t);
                 opt->setInitOptions(cfg.init);
                 opt->configure(methodKV);
+                // In parallel mode each run writes its progress lines into a
+                // private discarded buffer so console output cannot interleave;
+                // serial mode keeps the historical live output on stdout.
+                if (sink) opt->setOutputStream(sink);
 
-                if (effective_pop < 0)
-                    effective_pop = opt->population();
+                if (r == 0) effective_pop = opt->population();
 
                 auto res = opt->run();
-                best_vals.push_back(res.fbest);
-                eval_counts.push_back((double)res.evals);
-                if (res.fbest <= cfg.g.success_tol)
-                    ++success;
+                best_vals[(size_t)r]   = res.fbest;
+                eval_counts[(size_t)r] = (double)res.evals;
+                return (res.fbest <= cfg.g.success_tol) ? -1 : 0; // -1 marks success
+            };
+
+#ifdef OPTIM_HAVE_OPENMP
+            const bool par = cfg.g.parallel_runs && RUNS > 1 && (problem.rfind("gkls", 0) != 0);
+#else
+            const bool par = false;
+#endif
+            if (!par)
+            {
+                for (int r = 0; r < RUNS; ++r)
+                {
+                    int rc = runOne(r, nullptr);
+                    if (rc > 0)
+                    {
+                        std::cerr << (rc == 4 ? "Unknown problem: " + problem
+                                              : "Unknown method: "  + method) << "\n";
+                        return rc;
+                    }
+                    if (rc == -1) ++success;
+                }
             }
+#ifdef OPTIM_HAVE_OPENMP
+            else
+            {
+                if (cfg.g.omp_threads > 0) omp_set_num_threads(cfg.g.omp_threads);
+                int succ_count = 0;
+                #pragma omp parallel for schedule(dynamic) reduction(+:succ_count)
+                for (int r = 0; r < RUNS; ++r)
+                {
+                    std::ostringstream sink; // discarded per-run progress text
+                    int rc = runOne(r, &sink);
+                    if (rc > 0)
+                    {
+                        #pragma omp critical(optim_sens_error)
+                        { if (sens_error == 0) sens_error = rc; }
+                    }
+                    else if (rc == -1) ++succ_count;
+                }
+                if (sens_error != 0)
+                {
+                    std::cerr << (sens_error == 4 ? "Unknown problem: " + problem
+                                                  : "Unknown method: "  + method) << "\n";
+                    return sens_error;
+                }
+                success = succ_count;
+            }
+#endif
 
             double m_f = meanv(best_vals);
             double sd_f = stdevv(best_vals);

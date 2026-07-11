@@ -12,6 +12,10 @@
 #include <ctime>
 #include <filesystem>
 
+#ifdef OPTIM_HAVE_OPENMP
+#include <omp.h>
+#endif
+
 #include "utils.h"
 #include "problem.h"
 #include "optimizer.h"
@@ -376,23 +380,59 @@ int main(int argc, char** argv){
         old_cout_buf = std::cout.rdbuf(tee);
     }
 
-    for (int r=0; r<RUNS; ++r){
-        current_run = r;
+    // ------------------------------------------------------------------
+    // Execute the independent runs.
+    //
+    // Two execution paths that produce IDENTICAL numerical results:
+    //   * serial   : historical behavior, live console output per iteration.
+    //   * parallel : OpenMP over independent runs ([global] parallel_runs=1).
+    //                Every run owns its Problem instance, its optimizer and
+    //                its RNG seeded with seed_base + run_index — exactly as
+    //                in serial mode — so per-run results are bit-identical.
+    //                Console text of each run is buffered privately and
+    //                replayed in run order afterwards (so the convergence
+    //                CSV tee sees a clean, ordered stream).
+    // ------------------------------------------------------------------
+#ifdef OPTIM_HAVE_OPENMP
+    // The classic GKLS generator (gkls250/gkls350/gkls2100) is C code with
+    // global mutable state and is NOT thread-safe: those problems always
+    // run serially, regardless of the parallel_runs setting.
+    const bool problem_is_thread_safe = (problem.rfind("gkls", 0) != 0);
+    const bool use_parallel_runs = cfg.g.parallel_runs && RUNS > 1 && problem_is_thread_safe;
+    if (cfg.g.parallel_runs && RUNS > 1 && !problem_is_thread_safe) {
+        std::cout << "[info] parallel_runs disabled for problem '" << problem
+                  << "' (GKLS generator uses non-thread-safe global state); running serially.\n";
+    }
+#else
+    const bool use_parallel_runs = false;
+#endif
 
+    // Per-run result slots (index-addressed so ordering never depends on
+    // thread scheduling).
+    struct RunSlot {
+        double fbest = 0.0;
+        Vec    xbest;
+        double evals = 0.0;
+        double grads = 0.0;
+        double seconds = 0.0;
+        double iter_mean_ms = 0.0;
+        double iter_p95_ms  = 0.0;
+        double peak_kb      = 0.0;
+        bool   has_profile  = false;
+        std::string console;      // buffered output (parallel mode only)
+    };
+    std::vector<RunSlot> slots((size_t)RUNS);
+
+    int run_error = 0; // 2 = unknown problem, 3 = unknown method
+
+    auto executeOneRun = [&](int r, std::ostream* sink, RunSlot& out) -> int {
         auto p = makeProblem(problem);
-        if (!p){
-            std::cerr<<"Unknown problem: "<<problem<<"\n";
-            if (old_cout_buf) std::cout.rdbuf(old_cout_buf);
-            delete tee; return 2;
-        }
+        if (!p) return 2;
 
         p->init(dim);
         p->setMaxEvaluations(cfg.g.max_evals);
 
         std::mt19937_64 rng(cfg.g.seed_base + (unsigned long long)r);
-
-        double fbest = 0.0;
-        Vec    xbest;
 
         if (isLocalMethod(method)){
             Vec x0 = makeInitialX0(dim);
@@ -402,16 +442,11 @@ int main(int argc, char** argv){
             else if (method=="bfgs")  res = localBFGS  (p.get(), rng, x0);
             else                      res = localNM    (p.get(), rng, x0);
 
-            xbest = std::move(res.first);
-            fbest = res.second;
-            if (effective_pop < 0) effective_pop = 1;
+            out.xbest = std::move(res.first);
+            out.fbest = res.second;
         } else {
             auto opt = makeMethod(method);
-            if (!opt){
-                std::cerr<<"Unknown method: "<<method<<"\n";
-                if (old_cout_buf) std::cout.rdbuf(old_cout_buf);
-                delete tee; return 3;
-            }
+            if (!opt) return 3;
 
             if (r == 0) {
                 method_full_name = opt->methodFullName();
@@ -425,25 +460,88 @@ int main(int argc, char** argv){
             opt->configure(cfg.methodKV);
             opt->setEndLocalFromGlobal(cfg.g.end_local_refine, toLower(cfg.g.end_local_method));
             opt->setRunIndex(r);
+            if (sink) opt->setOutputStream(sink);
 
-            if (effective_pop < 0) effective_pop = opt->population();
+            if (r == 0) effective_pop = opt->population();
 
             auto rr = opt->run();
-            fbest   = rr.fbest;
-            xbest   = rr.xbest;
-
-            total_seconds += rr.seconds;
+            out.fbest   = rr.fbest;
+            out.xbest   = rr.xbest;
+            out.seconds = rr.seconds;
 
             const auto& prof = opt->profiler();
-            iter_mean_ms.push_back(prof.meanIterMS());
-            iter_p95_ms.push_back(prof.p95IterMS());
-            peak_kb.push_back(static_cast<double>(prof.peakRSSKB()));
+            out.iter_mean_ms = prof.meanIterMS();
+            out.iter_p95_ms  = prof.p95IterMS();
+            out.peak_kb      = static_cast<double>(prof.peakRSSKB());
+            out.has_profile  = true;
         }
 
-        best_vals.push_back(fbest);
-        eval_counts.push_back((double)p->calls());
-        grad_counts.push_back((double)p->gradCalls());
+        out.evals = (double)p->calls();
+        out.grads = (double)p->gradCalls();
+        return 0;
+    };
+
+    if (!use_parallel_runs) {
+        // -------- serial path (identical to previous behavior) --------
+        for (int r=0; r<RUNS; ++r){
+            current_run = r;
+            int rc = executeOneRun(r, /*sink*/nullptr, slots[(size_t)r]);
+            if (rc != 0) {
+                std::cerr << (rc == 2 ? "Unknown problem: " + problem
+                                      : "Unknown method: "  + method) << "\n";
+                if (old_cout_buf) std::cout.rdbuf(old_cout_buf);
+                delete tee; return rc;
+            }
+        }
     }
+#ifdef OPTIM_HAVE_OPENMP
+    else {
+        // -------- OpenMP parallel path --------
+        if (cfg.g.omp_threads > 0) omp_set_num_threads(cfg.g.omp_threads);
+
+        #pragma omp parallel for schedule(dynamic)
+        for (int r = 0; r < RUNS; ++r) {
+            std::ostringstream local_out;
+            int rc = executeOneRun(r, &local_out, slots[(size_t)r]);
+            if (rc != 0) {
+                #pragma omp critical(optim_run_error)
+                { if (run_error == 0) run_error = rc; }
+            }
+            slots[(size_t)r].console = local_out.str();
+        }
+
+        if (run_error != 0) {
+            std::cerr << (run_error == 2 ? "Unknown problem: " + problem
+                                         : "Unknown method: "  + method) << "\n";
+            if (old_cout_buf) std::cout.rdbuf(old_cout_buf);
+            delete tee; return run_error;
+        }
+
+        // Replay buffered console output in run order (feeds the tee so
+        // the convergence CSV is populated exactly as in serial mode).
+        for (int r = 0; r < RUNS; ++r) {
+            current_run = r;
+            std::cout << slots[(size_t)r].console;
+        }
+        std::cout.flush();
+    }
+#endif
+
+    // Collect per-run statistics in run order (same as serial history).
+    for (int r = 0; r < RUNS; ++r) {
+        const RunSlot& sl = slots[(size_t)r];
+        best_vals.push_back(sl.fbest);
+        eval_counts.push_back(sl.evals);
+        grad_counts.push_back(sl.grads);
+        total_seconds += sl.seconds;
+        if (sl.has_profile) {
+            iter_mean_ms.push_back(sl.iter_mean_ms);
+            iter_p95_ms.push_back(sl.iter_p95_ms);
+            peak_kb.push_back(sl.peak_kb);
+        }
+        if (effective_pop < 0 && isLocalMethod(method)) effective_pop = 1;
+    }
+    if (effective_pop < 0) effective_pop = 1;
 
     if (old_cout_buf) std::cout.rdbuf(old_cout_buf);
     delete tee;

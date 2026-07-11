@@ -74,6 +74,23 @@
 #include "problems/weierstrass.h"
 #include "problems/wirelesscoverage.h"
 #include "problems/zakharov.h"
+#include "problems/booth.h"
+#include "problems/beale.h"
+#include "problems/matyas.h"
+#include "problems/mccormick.h"
+#include "problems/colville.h"
+#include "problems/dixonprice.h"
+#include "problems/trid.h"
+#include "problems/powell.h"
+#include "problems/alpine1.h"
+#include "problems/salomon.h"
+#include "problems/whitley.h"
+#include "problems/perm.h"
+#include "problems/cassini1.h"
+#include "problems/sagas.h"
+#include "problems/gtoc1.h"
+#include "problems/rosetta.h"
+#include "problems/stirredtankreactor.h"
 #include "problems/gascycle.h"
 #include "problems/sinusoidal.h"
 #include "problems/gkls250.h"
@@ -98,6 +115,7 @@
 #include "methods/arq.h"
 #include "methods/de.h"
 #include "methods/pso.h"
+#include "methods/mscso.h"
 #include "methods/ga.h" 
 #include "methods/aco.h"
 #include "methods/acor.h"
@@ -158,7 +176,7 @@
 #include "methods/hades.h"
 #include "methods/lracmaes.h"
 #include "methods/lmcmaes.h"
-
+#include "methods/sparq.h"
 
 
 // local methods
@@ -243,6 +261,23 @@ std::unique_ptr<Problem> makeProblem(const std::string& raw) {
 	if (name == "weierstrass") return std::make_unique<optimsolution::Weierstrass>();
 	if (name == "wirelesscoverage") return std::make_unique<optimsolution::WirelessCoverage>();
 	if (name == "zakharov") return std::make_unique<optimsolution::Zakharov>();
+	if (name == "booth") return std::make_unique<optimsolution::Booth>();
+	if (name == "beale") return std::make_unique<optimsolution::Beale>();
+	if (name == "matyas") return std::make_unique<optimsolution::Matyas>();
+	if (name == "mccormick") return std::make_unique<optimsolution::McCormick>();
+	if (name == "colville") return std::make_unique<optimsolution::Colville>();
+	if (name == "dixonprice") return std::make_unique<optimsolution::DixonPrice>();
+	if (name == "trid") return std::make_unique<optimsolution::Trid>();
+	if (name == "powell") return std::make_unique<optimsolution::Powell>();
+	if (name == "alpine1") return std::make_unique<optimsolution::Alpine1>();
+	if (name == "salomon") return std::make_unique<optimsolution::Salomon>();
+	if (name == "whitley") return std::make_unique<optimsolution::Whitley>();
+	if (name == "perm") return std::make_unique<optimsolution::Perm>();
+	if (name == "cassini1") return std::make_unique<optimsolution::Cassini1>();
+	if (name == "sagas") return std::make_unique<optimsolution::Sagas>();
+	if (name == "gtoc1") return std::make_unique<optimsolution::GTOC1>();
+	if (name == "rosetta") return std::make_unique<optimsolution::Rosetta>();
+	if (name == "stirredtankreactor") return std::make_unique<optimsolution::StirredTankReactor>();
 	if (name == "sinusoidal") return std::make_unique<optimsolution::Sinusoidal>();
 	if (name == "gascycle") return std::make_unique<optimsolution::GasCycle>();
 	if (name == "gkls250") return std::make_unique<optimsolution::Gkls250>();
@@ -273,6 +308,7 @@ std::unique_ptr<Optimizer> makeMethod(const std::string& raw) {
     if (name == "arq")   return std::make_unique<ARQ>();
     if (name == "de")    return std::make_unique<DE>();
 	if (name == "pso")   return std::unique_ptr<Optimizer>(new PSO());
+	if (name == "mscso") return std::unique_ptr<Optimizer>(new MSCSO());
 	if (name == "ga")    return std::unique_ptr<Optimizer>(new GA());
     if (name == "gd")    return std::unique_ptr<Optimizer>(new GD());
 	if (name == "aco")  return std::make_unique<ACO>();	
@@ -334,6 +370,7 @@ std::unique_ptr<Optimizer> makeMethod(const std::string& raw) {
 	if (name == "hades") return std::make_unique<optimsolution::HADES>();	
 	if (name == "lracmaes") return std::make_unique<optimsolution::LRACMAES>();
 	if (name == "lmcmaes") return std::make_unique<optimsolution::LMCMAES>();
+	if (name == "sparq") return std::make_unique<optimsolution::SPARQ>();	
 	
     if (name == "nm")    return std::unique_ptr<Optimizer>(new NM());
     if (name == "lbfgs") return std::unique_ptr<Optimizer>(new LBFGS());
@@ -348,6 +385,8 @@ std::vector<std::string> listProblemNames() {
     // Returned identifiers are short names accepted by the CLI/GUI.
     return {
         "datacentercooling","smartportenergy","weatherirrigation","cec2022composition7","cec2022composition6","cec2022composition2","cec2022composition1","cec2022hybrid6","cec2022hybrid10","cec2022hybrid2","cec2022levy", "cec2022noncontinuousrastrigin","cec2022schafferf7","cec2022rosenbrock","cec2022zakharov","rastrigin","rosenbrock","potential","ackley","sphere","griewank","levy",
+        "booth","beale","matyas","mccormick","colville","dixonprice","trid","powell","alpine1","salomon","whitley","perm",
+        "cassini1","sagas","gtoc1","rosetta","stirredtankreactor",
         "attractivesector","bohachevsky1","bohachevsky2","bohachevsky3","branin","camel",
         "cigar","cosinemixture","differentpowers","diracproblem","easom","ellipsoidal",
         "equalmaxima","expotential","goldstein","griewankrosenbrock","hansen","hartmann3",
@@ -365,7 +404,7 @@ std::vector<std::string> listProblemNames() {
 std::vector<std::string> listMethodNames() {
     // NOTE: keep this list in sync with makeMethod().
     return {
-        "lmcmaes","lracmaes","hades","arq3","nlshadelbc","bjso","bwjso","gahs","awjso","sfcde","ude", "mjso","ujso","arq","arq2","de","pso","ga","gd","aco","acor","sa","woa","mewoa","abc","gwo",
+        "sparq","mscso","lmcmaes","lracmaes","hades","arq3","nlshadelbc","bjso","bwjso","gahs","awjso","sfcde","ude", "mjso","ujso","arq","arq2","de","pso","ga","gd","aco","acor","sa","woa","mewoa","abc","gwo",
         "egco","gao","ppso","pde","pga","psioa","sioa","sao","psao","bho","tridentde",
         "mlshaderl","jso","ea4eig","ude3","jde","sade","cmaes","clpso","tlbo","jaya","sca","fa","ba","hs","cs","so","gsa","alo","hho","mfo","mvo","sma","mpa","eo","wca","kh","hba", "nm","lbfgs","bfgs"
     };
