@@ -31,6 +31,19 @@ static void writePendingFlag(const QString& root) {
     if (f.open(QIODevice::WriteOnly | QIODevice::Text))
         QTextStream(&f) << QDateTime::currentDateTime().toString(Qt::ISODate) << "\n";
 }
+// Saves the .h/.cpp paths of the generated file so that the startup
+// error dialog can offer "Open in Code Editor" directly.
+static void writePendingSources(const QString& root,
+                                 const QString& hPath,
+                                 const QString& cppPath) {
+    if (root.isEmpty()) return;
+    QFile f(QDir(root).filePath(".rebuild_sources.txt"));
+    if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream ts(&f);
+        ts << hPath   << "\n";
+        ts << cppPath << "\n";
+    }
+}
 static void clearPendingFlag(const QString& root) {
     if (root.isEmpty()) return;
     QFile::remove(pendingFlagPath(root));
@@ -418,8 +431,15 @@ bool DeleteItemDialog::unpatchCMake(const QString& cmakePath,
     f.close();
 
     const QString subdir = isMethod_ ? "methods" : "problems";
-    code.remove(QRegularExpression(
-        QString(R"(\n?[ \t]*src/%1/%2\.cpp[ \t]*\n?)").arg(subdir, name)));
+
+    // Line-by-line removal: immune to \r\n / \n mixed endings.
+    const QString sep = code.contains("\r\n") ? "\r\n" : "\n";
+    QStringList lines = code.split(sep);
+    const QString target = QString("src/%1/%2.cpp").arg(subdir, name);
+    lines.removeIf([&](const QString& line) {
+        return line.trimmed() == target;
+    });
+    code = lines.join(sep);
 
     QFile fw(cmakePath);
     if (!fw.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -818,15 +838,22 @@ static bool patchCMake(const QString& cmakePath,
 
     if (code.contains(newLine)) return true;  // already there
 
-    // Find last existing entry of that subdir
-    const QRegularExpression reEntry(
-        QString(R"([ \t]+src/%1/[^\s]+\.cpp)").arg(subdir));
-    int lastEnd = -1;
-    QRegularExpressionMatchIterator it = reEntry.globalMatch(code);
-    while (it.hasNext()) { auto m = it.next(); lastEnd = m.capturedEnd(); }
+    // Line-by-line insertion: find last entry of the target subdir,
+    // insert the new line immediately after it.
+    // This approach is immune to \r\n / \n mixed endings.
+    const QString sep = code.contains("\r\n") ? "\r\n" : "\n";
+    QStringList lines = code.split(sep);
+    const QString subdirPrefix = "src/" + subdir + "/";
+    int lastIdx = -1;
+    for (int i = 0; i < lines.size(); ++i) {
+        const QString trimmed = lines[i].trimmed();
+        if (trimmed.startsWith(subdirPrefix) && trimmed.endsWith(".cpp"))
+            lastIdx = i;
+    }
 
-    if (lastEnd > 0) {
-        code.insert(lastEnd, "\n" + newLine);
+    if (lastIdx >= 0) {
+        lines.insert(lastIdx + 1, newLine);
+        code = lines.join(sep);
     } else {
         if (errOut) *errOut = "Could not find insertion point in CMakeLists.txt";
         return false;
@@ -912,6 +939,7 @@ void NewMethodDialog::onGenerate() {
     }
 
     statusLbl_->setText("✓ Done.");
+    writePendingSources(projectRoot_, generatedH_, generatedCpp_);  // for error-recovery dialog
     writePendingFlag(projectRoot_);   // signal rebuild needed
     QMessageBox::information(this, "Method generated",
         QString("Files written:\n  %1\n  %2\n\n"
@@ -1227,6 +1255,7 @@ void NewProblemDialog::onGenerate() {
     }
 
     statusLbl_->setText("✓ Done.");
+    writePendingSources(projectRoot_, generatedH_, generatedCpp_);  // for error-recovery dialog
     writePendingFlag(projectRoot_);   // signal rebuild needed
     QMessageBox::information(this, "Problem generated",
         QString("Files written:\n  %1\n  %2\n\n"
