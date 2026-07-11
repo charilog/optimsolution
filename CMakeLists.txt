@@ -104,6 +104,13 @@ add_library(optimcore
     src/problems/gtoc1.cpp
     src/problems/rosetta.cpp
     src/problems/stirredtankreactor.cpp
+    src/problems/weldedbeam.cpp
+    src/problems/speedreducer.cpp
+    src/problems/pressurevessel.cpp
+    src/problems/springdesign.cpp
+    src/problems/cantileverbeam.cpp
+    src/problems/threebartruss.cpp
+    src/problems/geartrain.cpp
     src/problems/sinusoidal.cpp
     src/problems/gascycle.cpp
     src/problems/gkls.cpp
@@ -126,9 +133,6 @@ add_library(optimcore
 	src/problems/weatherirrigation.cpp	
 	src/problems/smartportenergy.cpp		
 	src/problems/datacentercooling.cpp	
-	
-	
-	
 	src/methods/arq.cpp
     src/methods/de.cpp
     src/methods/pso.cpp
