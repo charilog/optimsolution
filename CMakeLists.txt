@@ -87,6 +87,23 @@ add_library(optimcore
     src/problems/weierstrass.cpp
     src/problems/wirelesscoverage.cpp
     src/problems/zakharov.cpp
+    src/problems/booth.cpp
+    src/problems/beale.cpp
+    src/problems/matyas.cpp
+    src/problems/mccormick.cpp
+    src/problems/colville.cpp
+    src/problems/dixonprice.cpp
+    src/problems/trid.cpp
+    src/problems/powell.cpp
+    src/problems/alpine1.cpp
+    src/problems/salomon.cpp
+    src/problems/whitley.cpp
+    src/problems/perm.cpp
+    src/problems/cassini1.cpp
+    src/problems/sagas.cpp
+    src/problems/gtoc1.cpp
+    src/problems/rosetta.cpp
+    src/problems/stirredtankreactor.cpp
     src/problems/sinusoidal.cpp
     src/problems/gascycle.cpp
     src/problems/gkls.cpp
@@ -108,9 +125,14 @@ add_library(optimcore
 	
 	src/problems/weatherirrigation.cpp	
 	src/problems/smartportenergy.cpp		
-	src/problems/datacentercooling.cpp	src/methods/arq.cpp
+	src/problems/datacentercooling.cpp	
+	
+	
+	
+	src/methods/arq.cpp
     src/methods/de.cpp
     src/methods/pso.cpp
+    src/methods/mscso.cpp
     src/methods/ga.cpp
 	src/methods/aco.cpp
     src/methods/acor.cpp
@@ -171,8 +193,7 @@ add_library(optimcore
 	src/methods/hades.cpp
 	src/methods/lracmaes.cpp
 	src/methods/lmcmaes.cpp
-
-	
+	src/methods/sparq.cpp	
 	
     src/methods/gd.cpp
     src/methods/nm.cpp
@@ -190,6 +211,18 @@ add_library(optimcore
 )
 
 target_include_directories(optimcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# ---------------------------------------------------------------------
+# OpenMP (optional, used for parallel independent runs)
+# ---------------------------------------------------------------------
+find_package(OpenMP QUIET COMPONENTS CXX)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(optimcore PUBLIC OpenMP::OpenMP_CXX)
+    target_compile_definitions(optimcore PUBLIC OPTIM_HAVE_OPENMP=1)
+    message(STATUS "optimsolution: OpenMP found -> parallel runs available (config: [global] parallel_runs / omp_threads)")
+else()
+    message(STATUS "optimsolution: OpenMP not found -> parallel runs disabled (serial fallback)")
+endif()
 
 # ---------------------------------------------------------------------
 # CLI executable (console subsystem)
