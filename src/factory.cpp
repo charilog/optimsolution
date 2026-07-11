@@ -91,6 +91,13 @@
 #include "problems/gtoc1.h"
 #include "problems/rosetta.h"
 #include "problems/stirredtankreactor.h"
+#include "problems/weldedbeam.h"
+#include "problems/speedreducer.h"
+#include "problems/pressurevessel.h"
+#include "problems/springdesign.h"
+#include "problems/cantileverbeam.h"
+#include "problems/threebartruss.h"
+#include "problems/geartrain.h"
 #include "problems/gascycle.h"
 #include "problems/sinusoidal.h"
 #include "problems/gkls250.h"
@@ -278,6 +285,13 @@ std::unique_ptr<Problem> makeProblem(const std::string& raw) {
 	if (name == "gtoc1") return std::make_unique<optimsolution::GTOC1>();
 	if (name == "rosetta") return std::make_unique<optimsolution::Rosetta>();
 	if (name == "stirredtankreactor") return std::make_unique<optimsolution::StirredTankReactor>();
+	if (name == "weldedbeam") return std::make_unique<optimsolution::WeldedBeam>();
+	if (name == "speedreducer") return std::make_unique<optimsolution::SpeedReducer>();
+	if (name == "pressurevessel") return std::make_unique<optimsolution::PressureVessel>();
+	if (name == "springdesign") return std::make_unique<optimsolution::SpringDesign>();
+	if (name == "cantileverbeam") return std::make_unique<optimsolution::CantileverBeam>();
+	if (name == "threebartruss") return std::make_unique<optimsolution::ThreeBarTruss>();
+	if (name == "geartrain") return std::make_unique<optimsolution::GearTrain>();
 	if (name == "sinusoidal") return std::make_unique<optimsolution::Sinusoidal>();
 	if (name == "gascycle") return std::make_unique<optimsolution::GasCycle>();
 	if (name == "gkls250") return std::make_unique<optimsolution::Gkls250>();
@@ -387,6 +401,7 @@ std::vector<std::string> listProblemNames() {
         "datacentercooling","smartportenergy","weatherirrigation","cec2022composition7","cec2022composition6","cec2022composition2","cec2022composition1","cec2022hybrid6","cec2022hybrid10","cec2022hybrid2","cec2022levy", "cec2022noncontinuousrastrigin","cec2022schafferf7","cec2022rosenbrock","cec2022zakharov","rastrigin","rosenbrock","potential","ackley","sphere","griewank","levy",
         "booth","beale","matyas","mccormick","colville","dixonprice","trid","powell","alpine1","salomon","whitley","perm",
         "cassini1","sagas","gtoc1","rosetta","stirredtankreactor",
+        "weldedbeam","speedreducer","pressurevessel","springdesign","cantileverbeam","threebartruss","geartrain",
         "attractivesector","bohachevsky1","bohachevsky2","bohachevsky3","branin","camel",
         "cigar","cosinemixture","differentpowers","diracproblem","easom","ellipsoidal",
         "equalmaxima","expotential","goldstein","griewankrosenbrock","hansen","hartmann3",
