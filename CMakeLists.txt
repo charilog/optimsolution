@@ -111,6 +111,14 @@ add_library(optimcore
     src/problems/cantileverbeam.cpp
     src/problems/threebartruss.cpp
     src/problems/geartrain.cpp
+    src/problems/eggholder.cpp
+    src/problems/crossintray.cpp
+    src/problems/holdertable.cpp
+    src/problems/bukinn6.cpp
+    src/problems/dropwave.cpp
+    src/problems/langermann.cpp
+    src/problems/vincent.cpp
+    src/problems/fiveunevenpeaktrap.cpp
     src/problems/sinusoidal.cpp
     src/problems/gascycle.cpp
     src/problems/gkls.cpp
