@@ -98,6 +98,14 @@
 #include "problems/cantileverbeam.h"
 #include "problems/threebartruss.h"
 #include "problems/geartrain.h"
+#include "problems/eggholder.h"
+#include "problems/crossintray.h"
+#include "problems/holdertable.h"
+#include "problems/bukinn6.h"
+#include "problems/dropwave.h"
+#include "problems/langermann.h"
+#include "problems/vincent.h"
+#include "problems/fiveunevenpeaktrap.h"
 #include "problems/gascycle.h"
 #include "problems/sinusoidal.h"
 #include "problems/gkls250.h"
@@ -292,6 +300,14 @@ std::unique_ptr<Problem> makeProblem(const std::string& raw) {
 	if (name == "cantileverbeam") return std::make_unique<optimsolution::CantileverBeam>();
 	if (name == "threebartruss") return std::make_unique<optimsolution::ThreeBarTruss>();
 	if (name == "geartrain") return std::make_unique<optimsolution::GearTrain>();
+	if (name == "eggholder") return std::make_unique<optimsolution::Eggholder>();
+	if (name == "crossintray") return std::make_unique<optimsolution::CrossInTray>();
+	if (name == "holdertable") return std::make_unique<optimsolution::HolderTable>();
+	if (name == "bukinn6") return std::make_unique<optimsolution::BukinN6>();
+	if (name == "dropwave") return std::make_unique<optimsolution::DropWave>();
+	if (name == "langermann") return std::make_unique<optimsolution::Langermann>();
+	if (name == "vincent") return std::make_unique<optimsolution::Vincent>();
+	if (name == "fiveunevenpeaktrap") return std::make_unique<optimsolution::FiveUnevenPeakTrap>();
 	if (name == "sinusoidal") return std::make_unique<optimsolution::Sinusoidal>();
 	if (name == "gascycle") return std::make_unique<optimsolution::GasCycle>();
 	if (name == "gkls250") return std::make_unique<optimsolution::Gkls250>();
@@ -402,6 +418,7 @@ std::vector<std::string> listProblemNames() {
         "booth","beale","matyas","mccormick","colville","dixonprice","trid","powell","alpine1","salomon","whitley","perm",
         "cassini1","sagas","gtoc1","rosetta","stirredtankreactor",
         "weldedbeam","speedreducer","pressurevessel","springdesign","cantileverbeam","threebartruss","geartrain",
+        "eggholder","crossintray","holdertable","bukinn6","dropwave","langermann","vincent","fiveunevenpeaktrap",
         "attractivesector","bohachevsky1","bohachevsky2","bohachevsky3","branin","camel",
         "cigar","cosinemixture","differentpowers","diracproblem","easom","ellipsoidal",
         "equalmaxima","expotential","goldstein","griewankrosenbrock","hansen","hartmann3",
