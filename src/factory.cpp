@@ -131,6 +131,13 @@
 #include "methods/de.h"
 #include "methods/pso.h"
 #include "methods/mscso.h"
+#include "methods/emscso.h"
+#include "methods/turbo.h"
+#include "methods/rembo.h"
+#include "methods/ccdg2.h"
+#include "methods/cso.h"
+#include "methods/lmmaes.h"
+#include "methods/vkdcmaes.h"
 #include "methods/ga.h" 
 #include "methods/aco.h"
 #include "methods/acor.h"
@@ -339,6 +346,13 @@ std::unique_ptr<Optimizer> makeMethod(const std::string& raw) {
     if (name == "de")    return std::make_unique<DE>();
 	if (name == "pso")   return std::unique_ptr<Optimizer>(new PSO());
 	if (name == "mscso") return std::unique_ptr<Optimizer>(new MSCSO());
+	if (name == "emscso") return std::unique_ptr<Optimizer>(new EMSCSO());
+	if (name == "turbo") return std::unique_ptr<Optimizer>(new TuRBO());
+	if (name == "rembo") return std::unique_ptr<Optimizer>(new REMBO());
+	if (name == "ccdg2") return std::unique_ptr<Optimizer>(new CCDG2());
+	if (name == "cso") return std::unique_ptr<Optimizer>(new CSO());
+	if (name == "lmmaes") return std::unique_ptr<Optimizer>(new LMMAES());
+	if (name == "vkdcmaes") return std::unique_ptr<Optimizer>(new VkDCMAES());
 	if (name == "ga")    return std::unique_ptr<Optimizer>(new GA());
     if (name == "gd")    return std::unique_ptr<Optimizer>(new GD());
 	if (name == "aco")  return std::make_unique<ACO>();	
@@ -436,7 +450,7 @@ std::vector<std::string> listProblemNames() {
 std::vector<std::string> listMethodNames() {
     // NOTE: keep this list in sync with makeMethod().
     return {
-        "sparq","mscso","lmcmaes","lracmaes","hades","arq3","nlshadelbc","bjso","bwjso","gahs","awjso","sfcde","ude", "mjso","ujso","arq","arq2","de","pso","ga","gd","aco","acor","sa","woa","mewoa","abc","gwo",
+        "sparq","mscso","emscso","turbo","rembo","ccdg2","cso","lmmaes","vkdcmaes","lmcmaes","lracmaes","hades","arq3","nlshadelbc","bjso","bwjso","gahs","awjso","sfcde","ude", "mjso","ujso","arq","arq2","de","pso","ga","gd","aco","acor","sa","woa","mewoa","abc","gwo",
         "egco","gao","ppso","pde","pga","psioa","sioa","sao","psao","bho","tridentde",
         "mlshaderl","jso","ea4eig","ude3","jde","sade","cmaes","clpso","tlbo","jaya","sca","fa","ba","hs","cs","so","gsa","alo","hho","mfo","mvo","sma","mpa","eo","wca","kh","hba", "nm","lbfgs","bfgs"
     };
