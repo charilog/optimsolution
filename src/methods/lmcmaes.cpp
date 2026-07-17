@@ -254,6 +254,22 @@ int LMCMAES::updateSet(int t)
         return t;           // jcur = t
     }
 
+    // Degenerate case: with only ONE stored direction vector (m_vec_==1,
+    // which happens whenever D==1, since m_vec_ = min(m_vec_, D)), there is
+    // no PAIR of slots to compare temporal gaps between -- the single slot
+    // is trivially both the oldest and the one to evict.
+    //
+    // BUG FIX: without this guard, the general Phase-2 logic below
+    // unconditionally reads l_[j_[1]] to seed min_gap -- an out-of-bounds
+    // access on the size-1 j_ array (undefined behaviour; in practice this
+    // crashed the optimizer outright). This silently broke LMCMAES on every
+    // fixed-D=1 problem (e.g. equalmaxima, bifunctionalcatalyst), which
+    // showed up as missing/blank results in batch comparisons rather than
+    // an obvious error message.
+    if (m_vec_ == 1) {
+        return j_[0];
+    }
+
     // ---- Phase 2: buffer full — find which slot to evict ----
     //
     // Find the pair of consecutive j_[] entries with the smallest temporal

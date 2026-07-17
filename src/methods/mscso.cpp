@@ -11,6 +11,7 @@ void MSCSO::goodPointSet(int n, int z, std::vector<std::vector<double>>& F) cons
     F.assign(std::max(0, n), std::vector<double>(std::max(0, z), 0.0));
     if (z <= 0 || n <= 0) return;
 
+    // Step 1 (Eq. 9): smallest prime p with z <= (p-3)/2  <=>  p >= 2z+3
     auto is_prime = [](int v) {
         if (v < 2) return false;
         for (int d = 2; (long long)d * d <= v; ++d) {
@@ -21,11 +22,14 @@ void MSCSO::goodPointSet(int n, int z, std::vector<std::vector<double>>& F) cons
     int p = 2 * z + 3;
     while (!is_prime(p)) ++p;
 
+    // Step 2 (Eq. 10): r_j = 2*cos(2*pi*j/p), j = 1..z
     std::vector<double> r(z);
     for (int j = 1; j <= z; ++j) {
         r[j - 1] = 2.0 * std::cos(2.0 * MSCSO_PI * (double)j / (double)p);
     }
 
+    // Step 3 (Eq. 11): good point set F_k = ({k*r_1}, ..., {k*r_z}), k = 1..n
+    // ({.} denotes fractional part, giving a point in the unit cube [0,1]^z)
     for (int k = 1; k <= n; ++k) {
         for (int j = 0; j < z; ++j) {
             const double v = (double)k * r[j];
@@ -43,6 +47,7 @@ void MSCSO::init() {
     Xbest_.assign(D, 0.0);
     Fbest_ = std::numeric_limits<double>::infinity();
 
+    // Good point set population initialization (Eq. 12: x = lb + F*(ub-lb)).
     std::vector<std::vector<double>> F;
     goodPointSet(pop_, D, F);
 
@@ -86,35 +91,35 @@ void MSCSO::one_iteration() {
     const int n = pop_;
 
     std::uniform_real_distribution<double> U01(0.0, 1.0);
-    std::uniform_real_distribution<double> Uang(1.0, 360.0);   
-    std::uniform_real_distribution<double> Uk(-1.0, 1.0);      
-    std::normal_distribution<double>       Nstd(0.0, 1.0);     
+    std::uniform_real_distribution<double> Uang(1.0, 360.0);   // paper Table 2: P = [1,360]
+    std::uniform_real_distribution<double> Uk(-1.0, 1.0);      // paper: K in [-1,1]
+    std::normal_distribution<double>       Nstd(0.0, 1.0);     // beta ~ N(0,1) (SSA convention)
 
     const double t    = (double)iters_;
     const double Tmax = (double)std::max(1, max_iters_);
 
-
+    // --- Nonlinear adjustment strategy (Eqs. 13-14) ---
     const double f_nl = std::sin((MSCSO_PI / 4.0) * (t / Tmax));
     const double rg   = SM_ - (SM_ * t / Tmax) * f_nl;
 
-
+    // --- R, r for this iteration (Eqs. 4-5); shared by the whole population ---
     const double R      = 2.0 * rg * U01(rng_) - rg;
     const double r_sens = rg - U01(rng_);
 
-
+    // --- Main SCSO position update (Algorithm 1 / Section 2.2-2.3) ---
     for (int i = 0; i < n; ++i) {
         const double theta_rad = Uang(rng_) * (MSCSO_PI / 180.0);
         const double c_theta   = std::cos(theta_rad);
 
         std::vector<double> xnew(D);
         if (std::fabs(R) <= 1.0) {
-
+            // Attack / exploitation (Eqs. 7-8)
             for (int j = 0; j < D; ++j) {
                 const double xrnd = std::fabs(U01(rng_) * (Xbest_[j] - X_[i][j]));
                 xnew[j] = Xbest_[j] - r_sens * xrnd * c_theta;
             }
         } else {
-
+            // Search / exploration (Eq. 6, corrected form -- see header note)
             for (int j = 0; j < D; ++j) {
                 xnew[j] = r_sens * (Xbest_[j] - U01(rng_) * X_[i][j]);
             }
@@ -131,15 +136,15 @@ void MSCSO::one_iteration() {
         if (prob_->calls() >= max_evals_) break;
     }
 
-
-
+    // Worst individual snapshot for this iteration (x_worst^t, f_w), used by
+    // the warning mechanism below.
     int worst_idx = 0;
     double fworst = FX_[0];
     for (int i = 1; i < n; ++i) {
         if (FX_[i] > fworst) { fworst = FX_[i]; worst_idx = i; }
     }
 
-
+    // --- Sparrow early-warning mechanism (Eq. 15), Section 3.3 ---
     const int nwarn = std::max(1, (int)std::lround(warning_frac_ * n));
     std::vector<int> idx(n);
     for (int i = 0; i < n; ++i) idx[i] = i;
@@ -150,13 +155,13 @@ void MSCSO::one_iteration() {
         std::vector<double> xcand(D);
 
         if (FX_[i] > Fbest_) {
-
+            // "Safe around x_b": random move around the current global best.
             const double beta = Nstd(rng_);
             for (int j = 0; j < D; ++j) {
                 xcand[j] = Xbest_[j] + beta * std::fabs(X_[i][j] - Xbest_[j]);
             }
         } else {
-
+            // At/near the global best: nudge away from the current worst.
             const double K = Uk(rng_);
             const double denom = std::fabs(FX_[i] - fworst) + eps_;
             for (int j = 0; j < D; ++j) {
@@ -167,7 +172,7 @@ void MSCSO::one_iteration() {
         ensureBounds(xcand);
         const double fcand = eval(xcand);
 
-
+        // Step 21 of Algorithm 2: accept only if the candidate is better.
         if (fcand < FX_[i]) {
             X_[i]  = std::move(xcand);
             FX_[i] = fcand;
@@ -180,6 +185,8 @@ void MSCSO::one_iteration() {
     best_x_ = Xbest_;
     best_f_ = Fbest_;
 
+    // Optional in-run local search after a successful global-best improvement
+    // (same convention as DE/PSO in this framework).
     if (local_rate_ > 0.0 && !local_method_.empty()) {
         if (U01(rng_) < local_rate_) {
             auto [xloc, floc] = localSearch(local_method_, best_x_);
@@ -204,7 +211,7 @@ void MSCSO::one_iteration() {
 }
 
 void MSCSO::end() {
-
+    // Executed at the end. Controlled ONLY by [global]. (same pattern as DE/PSO)
     if (!end_local_refine_)        return;
     if (!prob_)                    return;
     if (end_local_method_.empty()) return;
