@@ -152,6 +152,7 @@ add_library(optimcore
     src/methods/cso.cpp
     src/methods/lmmaes.cpp
     src/methods/vkdcmaes.cpp
+    src/methods/rmes.cpp
     src/methods/ga.cpp
 	src/methods/aco.cpp
     src/methods/acor.cpp
