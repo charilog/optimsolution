@@ -139,6 +139,7 @@
 #include "methods/lmmaes.h"
 #include "methods/vkdcmaes.h"
 #include "methods/rmes.h"
+#include "methods/mmes.h"
 #include "methods/ga.h" 
 #include "methods/aco.h"
 #include "methods/acor.h"
@@ -355,6 +356,7 @@ std::unique_ptr<Optimizer> makeMethod(const std::string& raw) {
 	if (name == "lmmaes") return std::unique_ptr<Optimizer>(new LMMAES());
 	if (name == "vkdcmaes") return std::unique_ptr<Optimizer>(new VkDCMAES());
 	if (name == "rmes") return std::unique_ptr<Optimizer>(new RmES());
+	if (name == "mmes") return std::unique_ptr<Optimizer>(new MMES());
 	if (name == "ga")    return std::unique_ptr<Optimizer>(new GA());
     if (name == "gd")    return std::unique_ptr<Optimizer>(new GD());
 	if (name == "aco")  return std::make_unique<ACO>();	
@@ -452,7 +454,7 @@ std::vector<std::string> listProblemNames() {
 std::vector<std::string> listMethodNames() {
     // NOTE: keep this list in sync with makeMethod().
     return {
-        "sparq","mscso","emscso","turbo","rembo","ccdg2","cso","lmmaes","vkdcmaes","rmes","lmcmaes","lracmaes","hades","arq3","nlshadelbc","bjso","bwjso","gahs","awjso","sfcde","ude", "mjso","ujso","arq","arq2","de","pso","ga","gd","aco","acor","sa","woa","mewoa","abc","gwo",
+        "sparq","mscso","emscso","turbo","rembo","ccdg2","cso","lmmaes","vkdcmaes","rmes","mmes","lmcmaes","lracmaes","hades","arq3","nlshadelbc","bjso","bwjso","gahs","awjso","sfcde","ude", "mjso","ujso","arq","arq2","de","pso","ga","gd","aco","acor","sa","woa","mewoa","abc","gwo",
         "egco","gao","ppso","pde","pga","psioa","sioa","sao","psao","bho","tridentde",
         "mlshaderl","jso","ea4eig","ude3","jde","sade","cmaes","clpso","tlbo","jaya","sca","fa","ba","hs","cs","so","gsa","alo","hho","mfo","mvo","sma","mpa","eo","wca","kh","hba", "nm","lbfgs","bfgs"
     };
