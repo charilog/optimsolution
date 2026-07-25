@@ -98,6 +98,19 @@ void SPARQ::configure(const MethodConfig& mc) {
 
     debug_                = mc.getInt("debug_arq", debug_);
 
+    // Ablation-study switches (see sparq.h for per-flag semantics).
+    enable_ide_     = mc.getInt("enable_ide",     enable_ide_)     ? 1 : 0;
+    enable_levy_    = mc.getInt("enable_levy",    enable_levy_)    ? 1 : 0;
+    enable_polish_  = mc.getInt("enable_polish",  enable_polish_)  ? 1 : 0;
+    enable_obl_     = mc.getInt("enable_obl",     enable_obl_)     ? 1 : 0;
+    enable_rejuv_   = mc.getInt("enable_rejuv",   enable_rejuv_)   ? 1 : 0;
+    enable_eigen_   = mc.getInt("enable_eigen",   enable_eigen_)   ? 1 : 0;
+    enable_rtr_     = mc.getInt("enable_rtr",     enable_rtr_)     ? 1 : 0;
+    enable_archive_ = mc.getInt("enable_archive", enable_archive_) ? 1 : 0;
+    enable_nlpsr_   = mc.getInt("enable_nlpsr",   enable_nlpsr_)   ? 1 : 0;
+    enable_echo_    = mc.getInt("enable_echo",    enable_echo_)    ? 1 : 0;
+    enable_shade_   = mc.getInt("enable_shade",   enable_shade_)   ? 1 : 0;
+
     // Sanity clamps
     if (H_ < 2) H_ = 2;
     if (Nmin_ < 4) Nmin_ = 4;
@@ -550,6 +563,12 @@ void SPARQ::sampleFCR(double& F, double& CR) {
     double muF  = MF_[r];
     double muCR = MCR_[r];
 
+    // Ablation: enable_shade=0 removes the success-history ADAPTATION only
+    // -- F/CR are sampled around fixed classical-DE means 0.5/0.5 with the
+    // exact same sampling machinery (Cauchy/Gaussian draws, clamps, jSO
+    // schedules) so the memory's learning is the sole thing switched off.
+    if (!enable_shade_) { muF = 0.5; muCR = 0.5; }
+
     // CR ~ Normal(muCR, 0.1) clamped to [0,1]; if muCR is "terminal" (>= 1.0
     // numerically would be very large) we still clamp to 1.
     CR = gaussN(muCR, 0.1);
@@ -579,6 +598,7 @@ void SPARQ::sampleFCR(double& F, double& CR) {
 void SPARQ::updateMemoryFromSuccess(const std::vector<double>& SF,
                                    const std::vector<double>& SCR,
                                    const std::vector<double>& SG) {
+    if (!enable_shade_) return; // ablation: memory never learns
     if (SF.empty()) return;
     double sumG = 0.0;
     for (double g : SG) sumG += g;
@@ -610,6 +630,11 @@ void SPARQ::updateMemoryFromSuccess(const std::vector<double>& SF,
 // Archive: FIFO-ish with overflow pruning
 // ============================================================================
 void SPARQ::archivePush(const Vec& x) {
+    // Ablation: with enable_archive=0 nothing is ever pushed, so A_ stays
+    // empty for the whole run -- makeTrialARQ's own `useA = !A_.empty() &&
+    // ...` guard then automatically draws r2 from the population instead,
+    // with no further special-casing needed anywhere else.
+    if (!enable_archive_) return;
     A_.push_back(x);
 }
 
@@ -861,6 +886,11 @@ void SPARQ::inheritIDEParams(int dst, int src) {
 // buffer. O(D) cost, no allocation after the first fill (assign() below
 // only reuses/resizes the existing Vec slot).
 void SPARQ::recordEchoStep(const Vec& from, const Vec& to) {
+    // Ablation: enable_echo=0 means no step is ever recorded, so
+    // echo_count_ stays 0 for the whole run and the polish's echo probe
+    // mode (gated on echo_count_ >= 1) can never fire -- one central
+    // guard covers every recording site and the consumption site alike.
+    if (!enable_echo_) return;
     if (echo_steps_.empty()) return;
     const int D = (int)from.size();
     Vec& slot = echo_steps_[echo_ptr_];
@@ -887,6 +917,12 @@ bool SPARQ::selectionRTR(int parentIndex, const Vec& u, double fu,
         SG.push_back(gain);
         return true;
     }
+    // Ablation: the RTR mechanism proper is the nearest-neighbour
+    // replacement fallback below; the branch above is plain greedy parent
+    // replacement. enable_rtr=0 therefore stops here -- selection becomes
+    // exactly classical DE greedy selection, with identical
+    // success-stat/echo/archive bookkeeping on acceptance.
+    if (!enable_rtr_) return false;
     const int N = (int)X_.size();
     // Dynamic pool: baseline rtr_pool_, but capped by N-1 and by rtr_pool_frac_*N
     int pool = rtr_pool_;
@@ -981,8 +1017,9 @@ void SPARQ::makeTrialARQ(int i, const std::vector<int>& ord,
     ensureBounds(v);
 
     // Crossover: eigen-space with probability p_eig_ (if basis is valid),
-    // otherwise classical binomial.
-    if (eig_valid_ && D >= eig_min_D_ && randU() < p_eig_) {
+    // otherwise classical binomial. Ablation: enable_eigen=0 forces the
+    // classical binomial path unconditionally.
+    if (enable_eigen_ && eig_valid_ && D >= eig_min_D_ && randU() < p_eig_) {
         eigenBinomialCrossover(D, X_[i], v, CR, u);
     } else {
         u = X_[i];
@@ -1009,7 +1046,7 @@ void SPARQ::stepARQ() {
     std::sort(ord.begin(), ord.end(),
               [&](int a, int b) { return FX_[a] < FX_[b]; });
 
-    if (!eig_valid_ || iters_since_eig_ >= eig_period_) {
+    if (enable_eigen_ && (!eig_valid_ || iters_since_eig_ >= eig_period_)) {
         // recompute on sorted view: to keep code simple we physically sort once
         sortByFitness();
         ord.assign(N, 0);
@@ -1832,9 +1869,13 @@ void SPARQ::one_iteration() {
 
     archiveTrim((int)X_.size());
 
-    // Strategy selection: warmup ARQ, then Thompson sampling
+    // Strategy selection: warmup ARQ, then Thompson sampling.
+    // Ablation: with enable_ide=0 the bandit is never consulted and every
+    // iteration runs the ARQ step (the IDE strategy is fully switched off).
     int hh = 0;
-    if (bootstrap_left_ > 0) {
+    if (!enable_ide_) {
+        hh = 0;
+    } else if (bootstrap_left_ > 0) {
         hh = 0;
         --bootstrap_left_;
     } else {
@@ -1848,7 +1889,7 @@ void SPARQ::one_iteration() {
         case 0:
         default:
             stepARQ();
-            quarantineLevy();
+            if (enable_levy_) quarantineLevy();
             break;
     }
 
@@ -1912,7 +1953,10 @@ void SPARQ::one_iteration() {
 
     {
         const int trig = (progress01() > polish_progress_trig_) ? 1 : polish_trigger_;
-        if (polish_cooldown_ > 0) {
+        if (!enable_polish_) {
+            // Ablation: polish fully disabled; cooldown bookkeeping is
+            // irrelevant in this mode.
+        } else if (polish_cooldown_ > 0) {
             --polish_cooldown_;
         } else if (polish_stag_signal >= trig) {
             elitePolish();
@@ -1925,15 +1969,17 @@ void SPARQ::one_iteration() {
     }
 
     // On-demand OBL (only after enough stagnation + variance collapse)
-    oblBasinEscape();
+    if (enable_obl_) oblBasinEscape();
 
     // UPGRADE (C): hard-stagnation partial restart
-    rejuvenate();
+    if (enable_rejuv_) rejuvenate();
 
     // NLPSR shrink (end of iteration so all indices above are still valid)
-    int Ntarget = targetPopulationSize();
-    if (Ntarget < (int)X_.size()) {
-        shrinkTo(Ntarget);
+    if (enable_nlpsr_) {
+        int Ntarget = targetPopulationSize();
+        if (Ntarget < (int)X_.size()) {
+            shrinkTo(Ntarget);
+        }
     }
 
     // Bandit book-keeping: decay posteriors (non-stationary world)

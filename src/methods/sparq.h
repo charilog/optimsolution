@@ -371,6 +371,47 @@ private:
     int    debug_{0};
 
     // ------------------------------------------------------------
+    // Ablation-study switches (optimsolution.cfg [sparq] section).
+    // Every mechanism defaults to ENABLED (1) so the default behaviour
+    // is byte-for-byte identical to the un-flagged implementation; set
+    // any of these to 0 in the cfg to disable that single mechanism and
+    // measure its contribution in isolation:
+    //   enable_ide     : Thompson-bandit strategy selection + the whole
+    //                    IDE alternative step (0 -> every iteration runs
+    //                    the ARQ step, bandit never consulted)
+    //   enable_levy    : quarantineLevy() outlier re-seeding
+    //   enable_polish  : elitePolish() stagnation-gated refinement
+    //   enable_obl     : oblBasinEscape() opposition-based escape
+    //   enable_rejuv   : rejuvenate() partial-restart machinery
+    //   enable_eigen   : eigen-space crossover (0 -> classical binomial
+    //                    always; the periodic eigen-basis recomputation is
+    //                    also skipped so its cost disappears too)
+    //   enable_rtr     : Restricted Tournament Replacement selection
+    //                    (0 -> plain greedy parent replacement fu<FX[i],
+    //                    with identical success-stat/archive bookkeeping)
+    //   enable_archive : external archive (0 -> archivePush() becomes a
+    //                    no-op everywhere and trial r2 always comes from
+    //                    the population)
+    //   enable_nlpsr   : NLPSR population shrink (0 -> population size
+    //                    stays at its initial value for the whole run)
+    //   enable_echo    : Trajectory-Echo recording + its polish probe mode
+    //   enable_shade   : SHADE success-history F/CR adaptation (0 -> F,CR
+    //                    are sampled around fixed means 0.5/0.5 and the
+    //                    memory is never updated)
+    // ------------------------------------------------------------
+    int    enable_ide_{1};
+    int    enable_levy_{1};
+    int    enable_polish_{1};
+    int    enable_obl_{1};
+    int    enable_rejuv_{1};
+    int    enable_eigen_{1};
+    int    enable_rtr_{1};
+    int    enable_archive_{1};
+    int    enable_nlpsr_{1};
+    int    enable_echo_{1};
+    int    enable_shade_{1};
+
+    // ------------------------------------------------------------
     // Private helpers
     // ------------------------------------------------------------
     inline double eval(const Vec& v) {
