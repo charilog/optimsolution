@@ -107,6 +107,15 @@ inline int getFixedDimOrZero(std::string name) {
         // CEC 2011: D = 1
         {"bifunctionalcatalyst", 1},
 
+        // Equal Maxima (niching/multimodal benchmark): D = 1
+        // EqualMaxima::init() ignores the requested dim, always D=1.
+        // (Missing from this table let batch/GUI requests for e.g. D=1000
+        // reach the problem; LMCMAES in particular crashes on any D=1
+        // problem due to a separate out-of-bounds bug in its ring-buffer
+        // eviction logic -- see lmcmaes.cpp -- which is fixed independently,
+        // but this entry also prevents the dimension mismatch that exposed it.)
+        {"equalmaxima", 1},
+
         // Tersoff Potential for model Si (B) / (C)
         // CEC 2011 RWP3/RWP4: D = 30 (N = 12 atoms, D = 3N-6).
         {"tersoffb",     30},

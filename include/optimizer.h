@@ -86,6 +86,12 @@ namespace optimsolution
         // given its own buffer so console output never interleaves between
         // threads; buffered text is replayed in run order afterwards.
         void setOutputStream(std::ostream* os) { out_ = (os ? os : &std::cout); }
+
+        // Optional: when set, the best-so-far (x1, x2) trajectory is appended to this
+        // stream once per iteration (only when the problem is 2D). Used by the GUI's
+        // "Landscape" tab to animate exploration -> exploitation over a 2D contour.
+        // Never owned by the Optimizer.
+        void setLandscapeStream(std::ostream* os) { landscape_os_ = os; }
         std::ostream& out() const { return *out_; }
 
         Result run()
@@ -94,12 +100,14 @@ namespace optimsolution
             profiler_.startRun(prob_ ? prob_->calls() : 0);
 
             init();
+            logLandscapePoint();
 
             while (!terminated())
             {
                 profiler_.startIter();
                 one_iteration();
                 profiler_.endIter(prob_ ? prob_->calls() : 0);
+                logLandscapePoint();
                 if (terminated()) break;
             }
 
@@ -152,6 +160,17 @@ namespace optimsolution
                << best_f_ << "\n";
         }
 
+        // Appends one row (run,iter,evals,best_f,x1,x2) to the landscape stream, if set
+        // and the problem is exactly 2D. No-op otherwise.
+        void logLandscapePoint() const
+        {
+            if (!landscape_os_ || best_x_.size() != 2) return;
+            (*landscape_os_) << run_index_ << "," << iters_ << ","
+                             << (prob_ ? prob_->calls() : 0) << ","
+                             << std::setprecision(15) << best_f_ << ","
+                             << best_x_[0] << "," << best_x_[1] << "\n";
+        }
+
         
         std::pair<Vec, double> localSearch(const std::string &localName, const Vec &x0)
         {
@@ -195,6 +214,9 @@ namespace optimsolution
 
         // --- output sink for progress lines (never owned) ---
         std::ostream* out_{&std::cout};
+
+        // --- optional landscape trajectory log sink (never owned) ---
+        std::ostream* landscape_os_{nullptr};
     };
 
 } // namespace optimsolution

@@ -30,6 +30,26 @@ public:
     }
     virtual double evaluate_core(const Vec& x) = 0;
 
+    // ---------------- Multi-objective (optional, additive) ----------------
+    // Default: 1 objective, forwarding to evaluate_core(). This means every
+    // existing problem automatically "works" in multi-objective mode as a
+    // trivial 1-objective case, with ZERO change to single-objective
+    // behavior. A problem that genuinely has >=2 competing criteria can
+    // override BOTH numObjectives() and evaluateMultiCore() while leaving
+    // evaluate_core() completely untouched -- so Single/Batch/Sensitivity
+    // modes keep using the original scalarized objective exactly as before,
+    // and only the dedicated Multi-objective mode uses the split criteria.
+    virtual int numObjectives() const { return 1; }
+
+    Vec evaluateMulti(const Vec& x) {
+        ++multi_calls_;
+        return evaluateMultiCore(x);
+    }
+    virtual Vec evaluateMultiCore(const Vec& x) { return { evaluate_core(x) }; }
+
+    bool isMultiObjective() const { return numObjectives() >= 2; }
+    long long multiCalls() const { return multi_calls_; }
+
     Vec gradient(const Vec& x) {
         ++grad_calls_;
         Vec g(dimension(), 0.0);
@@ -119,6 +139,7 @@ protected:
     Vec  lb_, ub_;
     long long calls_{0};
     long long grad_calls_{0};
+    long long multi_calls_{0};
     long long max_evals_{std::numeric_limits<long long>::max()};
 
     // --- metadata fields ---
