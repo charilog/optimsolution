@@ -11,6 +11,8 @@
 #include <functional>
 #include <ctime>
 #include <filesystem>
+#include <cstdlib>
+#include <random>
 
 #ifdef OPTIM_HAVE_OPENMP
 #include <omp.h>
@@ -81,7 +83,8 @@ static inline double stdev(const std::vector<double>& v){
     return std::sqrt(a/(v.size()-1));
 }
 static void usage(const char* argv0){
-    std::cout << "Usage:\n  " << argv0 << " <method> <problem> [dimension]\n";
+    std::cout << "Usage:\n  " << argv0 << " <method> <problem> [dimension]\n"
+              << "  " << argv0 << " --multi <method> <problem> [dimension] [population] [generations]\n";
 }
 static const char* stopRuleName(StopRule r){
     switch(r){
@@ -271,7 +274,106 @@ static bool readGlobalBoolOption(const std::string& filename,
 }
 
 // --------------------------------- MAIN ---------------------------------
+// ---------------------------------------------------------------------------
+// Multi-objective CLI path -- deliberately self-contained and separate from
+// the rest of main()'s single-objective flow below. It never touches conv_
+// csv/summ_csv/landscape_csv, Config::load's [global]/[sensitivity] machinery,
+// or the Optimizer::run() loop, so Single/Batch/Sensitivity runs are completely
+// unaffected by anything in this function.
+//
+//   optimsolution_cli --multi <method> <problem> [dim] [population] [generations]
+//
+// Output: "<prefix>_pareto.csv" with columns x1..xD,f1..fK (one row per
+// Pareto-optimal solution found).
+// ---------------------------------------------------------------------------
+static int runMultiObjectiveCli(int argc, char** argv) {
+    // argv[0]=exe, argv[1]="--multi", argv[2]=method, argv[3]=problem, [argv[4]=dim], [argv[5]=pop], [argv[6]=gens]
+    if (argc < 4) {
+        std::fprintf(stderr,
+            "Usage:\n  %s --multi <method> <problem> [dimension] [population] [generations]\n",
+            argv[0]);
+        return 1;
+    }
+
+    const std::string method  = toLower(argv[2]);
+    const std::string problem = toLower(argv[3]);
+
+    auto moo = makeMultiObjectiveMethod(method);
+    if (!moo) {
+        std::fprintf(stderr, "Unknown (or not yet multi-objective) method: %s\n", method.c_str());
+        return 1;
+    }
+    auto prob = makeProblem(problem);
+    if (!prob) {
+        std::fprintf(stderr, "Unknown problem: %s\n", problem.c_str());
+        return 1;
+    }
+
+    int dim = (argc >= 5) ? std::atoi(argv[4]) : prob->dimension();
+    if (dim <= 0) dim = 2;
+    prob->init(dim);
+
+    if (prob->numObjectives() < 2) {
+        std::fprintf(stderr,
+            "Problem '%s' is single-objective (numObjectives()=%d) and has no "
+            "multi-objective formulation yet.\n",
+            problem.c_str(), prob->numObjectives());
+        return 1;
+    }
+
+    const int population  = (argc >= 6) ? std::atoi(argv[5]) : 100;
+    const int generations  = (argc >= 7) ? std::atoi(argv[6]) : 200;
+
+    moo->setProblem(prob.get());
+    moo->setPopulationSize(population);
+    moo->setGenerations(generations);
+    moo->setSeed(std::random_device{}());
+
+    std::fprintf(stdout, "[multi] method=%s problem=%s dim=%d objectives=%d population=%d generations=%d\n",
+                 method.c_str(), problem.c_str(), dim, prob->numObjectives(), population, generations);
+
+    const MOOResult result = moo->run();
+
+    std::ostringstream ss;
+    ss << method << "_" << problem << "_d" << dim << "_multi_" << make_timestamp();
+    const std::string prefix = ss.str();
+    const std::string outPath = prefix + "_pareto.csv";
+
+    std::ofstream out(outPath, std::ios::trunc);
+    if (!out.is_open()) {
+        std::fprintf(stderr, "Could not open output file: %s\n", outPath.c_str());
+        return 1;
+    }
+    for (int i = 0; i < dim; ++i) out << "x" << (i + 1) << ",";
+    for (int k = 0; k < prob->numObjectives(); ++k) {
+        out << "f" << (k + 1);
+        if (k + 1 < prob->numObjectives()) out << ",";
+    }
+    out << "\n";
+
+    for (size_t r = 0; r < result.paretoX.size(); ++r) {
+        const Vec& x = result.paretoX[r];
+        const Vec& f = result.paretoF[r];
+        for (int i = 0; i < dim; ++i) out << std::setprecision(15) << x[i] << ",";
+        for (size_t k = 0; k < f.size(); ++k) {
+            out << std::setprecision(15) << f[k];
+            if (k + 1 < f.size()) out << ",";
+        }
+        out << "\n";
+    }
+    out.close();
+
+    std::fprintf(stdout, "[multi] Pareto front size: %zu, evals=%lld, generations=%lld\n",
+                 result.paretoX.size(), result.evals, result.generations);
+    std::fprintf(stdout, "[multi] Written: %s\n", outPath.c_str());
+    return 0;
+}
+
 int main(int argc, char** argv){
+    if (argc >= 2 && std::string(argv[1]) == "--multi") {
+        return runMultiObjectiveCli(argc, argv);
+    }
+
     if (argc < 3){ usage(argv[0]); return 1; }
 
     std::string method  = toLower(argv[1]);
@@ -337,6 +439,7 @@ int main(int argc, char** argv){
     // CSV files
     std::ofstream conv_csv;
     std::ofstream summ_csv;
+    std::ofstream landscape_csv;
 
     if (cfg.g.csv_enable && cfg.g.csv_convergence) {
         conv_csv.open(prefix + "_convergence.csv", std::ios::trunc);
@@ -349,6 +452,14 @@ int main(int argc, char** argv){
             << "success_criterion,min_f,mean_f,sd_f,mean_evals,sd_evals,mean_grad,sd_grad,"
             << "success_count,success_rate,iter_mean_ms_mean,iter_mean_ms_sd,iter_p95_ms_mean,iter_p95_ms_sd,"
             << "mem_peak_mb_mean,mem_peak_mb_sd,inrun_local,final_local\n";
+    }
+    // 2D-only: best-so-far (x1,x2) trajectory, used by the GUI's "Landscape" tab to
+    // animate exploration -> exploitation over a contour of the objective. Only the
+    // first run (run==0) is logged (see executeOneRun below) since this is meant as a
+    // single illustrative animation, not a per-run comparison.
+    if (cfg.g.csv_enable && dim == 2) {
+        landscape_csv.open(prefix + "_landscape.csv", std::ios::trunc);
+        landscape_csv << "run,iter,evals,best_f,x1,x2\n";
     }
 
     // stats over runs
@@ -461,6 +572,10 @@ int main(int argc, char** argv){
             opt->setEndLocalFromGlobal(cfg.g.end_local_refine, toLower(cfg.g.end_local_method));
             opt->setRunIndex(r);
             if (sink) opt->setOutputStream(sink);
+            // Only the first run's trajectory is logged (a single illustrative
+            // animation, not a per-run comparison); safe under parallel_runs too
+            // since only whichever thread handles r==0 ever touches this stream.
+            if (r == 0 && landscape_csv.is_open()) opt->setLandscapeStream(&landscape_csv);
 
             if (r == 0) effective_pop = opt->population();
 

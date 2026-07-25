@@ -123,6 +123,35 @@
 #include "problems/cec2022_composition2.h"
 #include "problems/cec2022_composition6.h"
 #include "problems/cec2022_composition7.h"
+#include "problems/cec2017_f1.h"
+#include "problems/cec2017_f3.h"
+#include "problems/cec2017_f4.h"
+#include "problems/cec2017_f5.h"
+#include "problems/cec2017_f6.h"
+#include "problems/cec2017_f7.h"
+#include "problems/cec2017_f8.h"
+#include "problems/cec2017_f9.h"
+#include "problems/cec2017_f10.h"
+#include "problems/cec2017_f11.h"
+#include "problems/cec2017_f12.h"
+#include "problems/cec2017_f13.h"
+#include "problems/cec2017_f14.h"
+#include "problems/cec2017_f15.h"
+#include "problems/cec2017_f16.h"
+#include "problems/cec2017_f17.h"
+#include "problems/cec2017_f18.h"
+#include "problems/cec2017_f19.h"
+#include "problems/cec2017_f20.h"
+#include "problems/cec2017_f21.h"
+#include "problems/cec2017_f22.h"
+#include "problems/cec2017_f23.h"
+#include "problems/cec2017_f24.h"
+#include "problems/cec2017_f25.h"
+#include "problems/cec2017_f26.h"
+#include "problems/cec2017_f27.h"
+#include "problems/cec2017_f28.h"
+#include "problems/cec2017_f29.h"
+#include "problems/cec2017_f30.h"
 
 #include "problems/weatherirrigation.h"
 #include "problems/smartportenergy.h"
@@ -146,6 +175,8 @@
 #include "methods/sa.h"
 #include "methods/woa.h"
 #include "methods/mewoa.h"
+#include "methods/rdex.h"
+#include "methods/rde.h"
 #include "methods/abc.h" 
 #include "methods/gwo.h" 
 #include "methods/egco.h"
@@ -208,6 +239,9 @@
 #include "methods/nm.h"
 #include "methods/lbfgs.h"
 #include "methods/bfgs.h"
+
+// multi-objective methods (optional; additive)
+#include "methods/nsga2.h"
 
 namespace optimsolution {
 
@@ -334,6 +368,35 @@ std::unique_ptr<Problem> makeProblem(const std::string& raw) {
 	if (name == "cec2022composition2") return std::make_unique<optimsolution::CEC2022Composition2>();
 	if (name == "cec2022composition6") return std::make_unique<optimsolution::CEC2022Composition6>();
 	if (name == "cec2022composition7") return std::make_unique<optimsolution::CEC2022Composition7>();
+	if (name == "cec2017f1") return std::make_unique<optimsolution::CEC2017F1>();
+	if (name == "cec2017f3") return std::make_unique<optimsolution::CEC2017F3>();
+	if (name == "cec2017f4") return std::make_unique<optimsolution::CEC2017F4>();
+	if (name == "cec2017f5") return std::make_unique<optimsolution::CEC2017F5>();
+	if (name == "cec2017f6") return std::make_unique<optimsolution::CEC2017F6>();
+	if (name == "cec2017f7") return std::make_unique<optimsolution::CEC2017F7>();
+	if (name == "cec2017f8") return std::make_unique<optimsolution::CEC2017F8>();
+	if (name == "cec2017f9") return std::make_unique<optimsolution::CEC2017F9>();
+	if (name == "cec2017f10") return std::make_unique<optimsolution::CEC2017F10>();
+	if (name == "cec2017f11") return std::make_unique<optimsolution::CEC2017F11>();
+	if (name == "cec2017f12") return std::make_unique<optimsolution::CEC2017F12>();
+	if (name == "cec2017f13") return std::make_unique<optimsolution::CEC2017F13>();
+	if (name == "cec2017f14") return std::make_unique<optimsolution::CEC2017F14>();
+	if (name == "cec2017f15") return std::make_unique<optimsolution::CEC2017F15>();
+	if (name == "cec2017f16") return std::make_unique<optimsolution::CEC2017F16>();
+	if (name == "cec2017f17") return std::make_unique<optimsolution::CEC2017F17>();
+	if (name == "cec2017f18") return std::make_unique<optimsolution::CEC2017F18>();
+	if (name == "cec2017f19") return std::make_unique<optimsolution::CEC2017F19>();
+	if (name == "cec2017f20") return std::make_unique<optimsolution::CEC2017F20>();
+	if (name == "cec2017f21") return std::make_unique<optimsolution::CEC2017F21>();
+	if (name == "cec2017f22") return std::make_unique<optimsolution::CEC2017F22>();
+	if (name == "cec2017f23") return std::make_unique<optimsolution::CEC2017F23>();
+	if (name == "cec2017f24") return std::make_unique<optimsolution::CEC2017F24>();
+	if (name == "cec2017f25") return std::make_unique<optimsolution::CEC2017F25>();
+	if (name == "cec2017f26") return std::make_unique<optimsolution::CEC2017F26>();
+	if (name == "cec2017f27") return std::make_unique<optimsolution::CEC2017F27>();
+	if (name == "cec2017f28") return std::make_unique<optimsolution::CEC2017F28>();
+	if (name == "cec2017f29") return std::make_unique<optimsolution::CEC2017F29>();
+	if (name == "cec2017f30") return std::make_unique<optimsolution::CEC2017F30>();
 	
 	if (name == "weatherirrigation") return std::make_unique<optimsolution::WeatherIrrigation>();	
 	if (name == "smartportenergy") return std::make_unique<optimsolution::SmartPortEnergy>();	
@@ -364,6 +427,8 @@ std::unique_ptr<Optimizer> makeMethod(const std::string& raw) {
 	if (name == "sa")    return std::make_unique<SA>();
 	if (name == "woa") 	 return std::make_unique<WOA>();
 	if (name == "mewoa") return std::make_unique<MEWOA>();
+	if (name == "rdex")  return std::make_unique<RDEx>();
+	if (name == "rde")   return std::make_unique<RDE>();
 	if (name == "abc")   return std::make_unique<ABC>();
 	if (name == "gwo")   return std::make_unique<GWO>();
 	if (name == "egco")  return std::make_unique<EGCO>();
@@ -432,7 +497,7 @@ std::vector<std::string> listProblemNames() {
     // NOTE: keep this list in sync with makeProblem().
     // Returned identifiers are short names accepted by the CLI/GUI.
     return {
-        "datacentercooling","smartportenergy","weatherirrigation","cec2022composition7","cec2022composition6","cec2022composition2","cec2022composition1","cec2022hybrid6","cec2022hybrid10","cec2022hybrid2","cec2022levy", "cec2022noncontinuousrastrigin","cec2022schafferf7","cec2022rosenbrock","cec2022zakharov","rastrigin","rosenbrock","potential","ackley","sphere","griewank","levy",
+        "datacentercooling","smartportenergy","weatherirrigation","cec2022composition7","cec2022composition6","cec2022composition2","cec2022composition1","cec2022hybrid6","cec2022hybrid10","cec2022hybrid2","cec2022levy", "cec2022noncontinuousrastrigin","cec2022schafferf7","cec2022rosenbrock","cec2022zakharov","cec2017f1","cec2017f3","cec2017f4","cec2017f5","cec2017f6","cec2017f7","cec2017f8","cec2017f9","cec2017f10","cec2017f11","cec2017f12","cec2017f13","cec2017f14","cec2017f15","cec2017f16","cec2017f17","cec2017f18","cec2017f19","cec2017f20","cec2017f21","cec2017f22","cec2017f23","cec2017f24","cec2017f25","cec2017f26","cec2017f27","cec2017f28","cec2017f29","cec2017f30","rastrigin","rosenbrock","potential","ackley","sphere","griewank","levy",
         "booth","beale","matyas","mccormick","colville","dixonprice","trid","powell","alpine1","salomon","whitley","perm",
         "cassini1","sagas","gtoc1","rosetta","stirredtankreactor",
         "weldedbeam","speedreducer","pressurevessel","springdesign","cantileverbeam","threebartruss","geartrain",
@@ -454,10 +519,53 @@ std::vector<std::string> listProblemNames() {
 std::vector<std::string> listMethodNames() {
     // NOTE: keep this list in sync with makeMethod().
     return {
-        "sparq","mscso","emscso","turbo","rembo","ccdg2","cso","lmmaes","vkdcmaes","rmes","mmes","lmcmaes","lracmaes","hades","arq3","nlshadelbc","bjso","bwjso","gahs","awjso","sfcde","ude", "mjso","ujso","arq","arq2","de","pso","ga","gd","aco","acor","sa","woa","mewoa","abc","gwo",
+        "sparq","mscso","emscso","turbo","rembo","ccdg2","cso","lmmaes","vkdcmaes","rmes","mmes","lmcmaes","lracmaes","hades","arq3","nlshadelbc","bjso","bwjso","gahs","awjso","sfcde","ude", "mjso","ujso","arq","arq2","de","pso","ga","gd","aco","acor","sa","woa","mewoa","abc","gwo","rdex","rde",
         "egco","gao","ppso","pde","pga","psioa","sioa","sao","psao","bho","tridentde",
         "mlshaderl","jso","ea4eig","ude3","jde","sade","cmaes","clpso","tlbo","jaya","sca","fa","ba","hs","cs","so","gsa","alo","hho","mfo","mvo","sma","mpa","eo","wca","kh","hba", "nm","lbfgs","bfgs"
     };
+}
+
+// -----------------------------------------------------------------------------
+// Multi-objective (optional; additive)
+// -----------------------------------------------------------------------------
+bool isMultiObjectiveProblem(const std::string& name) {
+    // Deliberately an explicit allowlist rather than "construct every known
+    // problem and call init(2) to see what happens": several problems in
+    // this codebase have effectively fixed/large dimensions baked into their
+    // name and internals (e.g. gkls250, gkls350, gkls2100, ik6dof, antenna
+    // arrays, TNEP's fixed 6-node/11-line network...). Probing all of them
+    // with an arbitrary small dimension at GUI startup risks undefined
+    // behavior (out-of-bounds access, etc.) that a try/catch cannot save,
+    // rather than a safe, catchable exception. Add a name here only once a
+    // problem has actually been given a numObjectives()>=2 override AND been
+    // verified to init() safely at a small probe dimension.
+    static const std::vector<std::string> kKnownMultiObjective = {
+        "portfoliomv",
+    };
+    const std::string lname = toLower(name);
+    for (const auto& n : kKnownMultiObjective) {
+        if (n == lname) return true;
+    }
+    return false;
+}
+
+std::vector<std::string> listMultiObjectiveProblemNames() {
+    std::vector<std::string> out;
+    for (const auto& name : listProblemNames()) {
+        if (isMultiObjectiveProblem(name)) out.push_back(name);
+    }
+    return out;
+}
+
+std::vector<std::string> listMultiObjectiveMethodNames() {
+    // NOTE: keep this list in sync with makeMultiObjectiveMethod().
+    return { "nsga2" };
+}
+
+std::unique_ptr<MOOOptimizer> makeMultiObjectiveMethod(const std::string& raw) {
+    auto name = toLower(raw);
+    if (name == "nsga2") return std::make_unique<NSGA2>();
+    return nullptr;
 }
 
 } // namespace optimsolution
