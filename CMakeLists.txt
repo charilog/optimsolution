@@ -136,7 +136,36 @@ add_library(optimcore
     src/problems/cec2022_composition1.cpp	
     src/problems/cec2022_composition2.cpp	
     src/problems/cec2022_composition6.cpp
-	src/problems/cec2022_composition7.cpp
+    src/problems/cec2022_composition7.cpp
+    src/problems/cec2017_f1.cpp
+    src/problems/cec2017_f3.cpp
+    src/problems/cec2017_f4.cpp
+    src/problems/cec2017_f5.cpp
+    src/problems/cec2017_f6.cpp
+    src/problems/cec2017_f7.cpp
+    src/problems/cec2017_f8.cpp
+    src/problems/cec2017_f9.cpp
+    src/problems/cec2017_f10.cpp
+    src/problems/cec2017_f11.cpp
+    src/problems/cec2017_f12.cpp
+    src/problems/cec2017_f13.cpp
+    src/problems/cec2017_f14.cpp
+    src/problems/cec2017_f15.cpp
+    src/problems/cec2017_f16.cpp
+    src/problems/cec2017_f17.cpp
+    src/problems/cec2017_f18.cpp
+    src/problems/cec2017_f19.cpp
+    src/problems/cec2017_f20.cpp
+    src/problems/cec2017_f21.cpp
+    src/problems/cec2017_f22.cpp
+    src/problems/cec2017_f23.cpp
+    src/problems/cec2017_f24.cpp
+    src/problems/cec2017_f25.cpp
+    src/problems/cec2017_f26.cpp
+    src/problems/cec2017_f27.cpp
+    src/problems/cec2017_f28.cpp
+    src/problems/cec2017_f29.cpp
+    src/problems/cec2017_f30.cpp
 	
 	src/problems/weatherirrigation.cpp	
 	src/problems/smartportenergy.cpp		
@@ -160,6 +189,8 @@ add_library(optimcore
     src/methods/sa.cpp
     src/methods/woa.cpp
     src/methods/mewoa.cpp
+    src/methods/rdex.cpp
+    src/methods/rde.cpp
     src/methods/abc.cpp
     src/methods/gwo.cpp
     src/methods/egco.cpp
@@ -220,6 +251,8 @@ add_library(optimcore
     src/methods/nm.cpp
     src/methods/lbfgs.cpp
     src/methods/bfgs.cpp
+
+    src/methods/nsga2.cpp
 
     src/localsearch.cpp
     src/factory.cpp
