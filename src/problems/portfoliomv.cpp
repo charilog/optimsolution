@@ -72,6 +72,29 @@ double PortfolioMV::evaluate_core(const Vec& w) {
     return f;
 }
 
+Vec PortfolioMV::evaluateMultiCore(const Vec& w) {
+    // Same underlying quantities as evaluate_core(), but reported as two
+    // separate, un-weighted criteria instead of being combined into one
+    // scalar. Both are "to minimize": risk (variance) and -(expected return).
+    double var = 0.0;
+    for (int i = 0; i < N_; ++i)
+        for (int j = 0; j < N_; ++j)
+            var += w[i] * cov(i, j) * w[j];
+
+    double ret = 0.0;
+    for (int i = 0; i < N_; ++i) ret += mu_[i] * w[i];
+
+    double sumw = 0.0;
+    for (int i = 0; i < N_; ++i) sumw += w[i];
+    const double sum_pen = w_sum_ * (sumw - 1.0) * (sumw - 1.0);
+
+    double f1 = var + sum_pen;
+    double f2 = -ret + sum_pen;
+    if (!std::isfinite(f1)) f1 = 1e12;
+    if (!std::isfinite(f2)) f2 = 1e12;
+    return { f1, f2 };
+}
+
 void PortfolioMV::gradient_core(const Vec& x, Vec& g) {
     // Numerical forward differences
     g.assign(x.size(), 0.0);

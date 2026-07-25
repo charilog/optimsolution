@@ -22,6 +22,17 @@ public:
 
     void init(int dim) override;                   // set dimension and bounds
 
+    // Multi-objective view: {portfolio variance, -expected return}, both to be
+    // minimized (so the Pareto front runs from low-risk/low-return to
+    // high-risk/high-return). The sum-to-one soft penalty is added to BOTH
+    // objectives so infeasible weight vectors are penalized in every
+    // criterion, exactly mirroring how it already penalizes the single
+    // scalarized objective below. evaluate_core() is left untouched, so
+    // Single/Batch/Sensitivity runs keep using the original weighted-sum
+    // objective exactly as before.
+    int numObjectives() const override { return 2; }
+    Vec evaluateMultiCore(const Vec& w) override;
+
 protected:
     double evaluate_core(const Vec& w) override;   // objective value
     void   gradient_core(const Vec& x, Vec& g) override; // numeric forward diffs
