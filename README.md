@@ -2,7 +2,7 @@
   <img src="./docs/optimsolution.png" alt="Optimsolution logo" width="720">
 </p>
 
-Optimsolution (version 53) is a C++ optimization framework that combines a full-featured Qt-based GUI with a CLI for experimenting with population-based metaheuristics and numerical optimizers across benchmark and real-world problems. The GUI drives the complete workflow selecting methods and problems, configuring runs, launching batch experiments, visualizing convergence, and analyzing results through ranking tables and statistical tests while the CLI provides the same capabilities for scripted and headless execution. Both interfaces share the same optimization core and configuration file, and both support explicit computational budgets, multiple initialization strategies, local search integration, and sensitivity analysis of method and problem parameters.
+Optimsolution (version 52+) is a C++ optimization framework that combines a full-featured Qt-based GUI with a CLI for experimenting with population-based metaheuristics and numerical optimizers across benchmark and real-world problems. The GUI drives the complete workflow selecting methods and problems, configuring runs, launching batch experiments, visualizing convergence, and analyzing results through ranking tables and statistical tests while the CLI provides the same capabilities for scripted and headless execution. Both interfaces share the same optimization core and configuration file, and both support explicit computational budgets, multiple initialization strategies, local search integration, and sensitivity analysis of method and problem parameters.
 
 > English manual: [optimsolution_manual_EN.pdf](./docs/optimsolutionManual_EN.pdf)
 >
@@ -38,7 +38,7 @@ A systematic review of the problem library turned up and corrected a number of i
 ### Code Wizard improvements
 The **Code Wizard** panel supports creating and deleting methods and problems directly from the GUI. When a new method or problem is generated or deleted, the application writes a pending-rebuild flag (`.rebuild_pending`) and prompts for a restart. On the next startup, if the flag is detected, the GUI offers to rebuild automatically before loading the factory — eliminating the LNK1104 locked-executable error that would otherwise occur on Windows.
 
-### v52 → v53
+### v52 → v52+
 
 #### New run mode: Multi-objective optimization
 A fifth run mode joins Single/Batch/Sensitivity: **Multi-objective optimization**, producing a Pareto front instead of a single best value. Its settings panel lists **Method** first, then **Problem**, then **Dimension** — population and generations are intentionally **not** exposed here; like every other run mode, they are read from `optimsolution.cfg` (each method's own section, e.g. `[nsga2]`), so a batch of multi-objective runs stays configured from the same single file as everything else. Output CSVs from this mode are written to `optimsolution_gui_run/`, matching the convention already used by Single/Batch/Sensitivity, instead of the application's root folder.
