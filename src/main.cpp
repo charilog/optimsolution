@@ -84,7 +84,7 @@ static inline double stdev(const std::vector<double>& v){
 }
 static void usage(const char* argv0){
     std::cout << "Usage:\n  " << argv0 << " <method> <problem> [dimension]\n"
-              << "  " << argv0 << " --multi <method> <problem> [dimension] [population] [generations]\n";
+              << "  " << argv0 << " --multi <method> <problem> [dimension]\n";
 }
 static const char* stopRuleName(StopRule r){
     switch(r){
@@ -281,16 +281,21 @@ static bool readGlobalBoolOption(const std::string& filename,
 // or the Optimizer::run() loop, so Single/Batch/Sensitivity runs are completely
 // unaffected by anything in this function.
 //
-//   optimsolution_cli --multi <method> <problem> [dim] [population] [generations]
+//   optimsolution_cli --multi <method> <problem> [dim]
+//
+// Population and generations are read from optimsolution.cfg, from the
+// chosen method's own section (e.g. [nsga2] population=... / generations=...),
+// exactly like every single-objective method reads its own settings --
+// they are deliberately NOT CLI arguments here.
 //
 // Output: "<prefix>_pareto.csv" with columns x1..xD,f1..fK (one row per
 // Pareto-optimal solution found).
 // ---------------------------------------------------------------------------
 static int runMultiObjectiveCli(int argc, char** argv) {
-    // argv[0]=exe, argv[1]="--multi", argv[2]=method, argv[3]=problem, [argv[4]=dim], [argv[5]=pop], [argv[6]=gens]
+    // argv[0]=exe, argv[1]="--multi", argv[2]=method, argv[3]=problem, [argv[4]=dim]
     if (argc < 4) {
         std::fprintf(stderr,
-            "Usage:\n  %s --multi <method> <problem> [dimension] [population] [generations]\n",
+            "Usage:\n  %s --multi <method> <problem> [dimension]\n",
             argv[0]);
         return 1;
     }
@@ -321,13 +326,31 @@ static int runMultiObjectiveCli(int argc, char** argv) {
         return 1;
     }
 
-    const int population  = (argc >= 6) ? std::atoi(argv[5]) : 100;
-    const int generations  = (argc >= 7) ? std::atoi(argv[6]) : 200;
+    const std::string cfg_file = findOptimsolutionCfg(argv[0]).string();
+    const auto cfg = Config::load(cfg_file, method);
+    const int population  = cfg.methodKV.getInt("population", 100);
+    const int generations  = cfg.methodKV.getInt("generations", 200);
 
     moo->setProblem(prob.get());
     moo->setPopulationSize(population);
     moo->setGenerations(generations);
     moo->setSeed(std::random_device{}());
+
+    // Method-specific extra parameters, all optional (defaults live in each
+    // method's own class comment); harmless to set even for the methods
+    // that don't use a given name, since setParam() just stores it.
+    moo->setParam("crossover_prob", cfg.methodKV.getDbl("crossover_prob", 0.9));
+    moo->setParam("eta_c",          cfg.methodKV.getDbl("eta_c", 15.0));
+    moo->setParam("eta_m",          cfg.methodKV.getDbl("eta_m", 20.0));
+    moo->setParam("neighbor_size",  cfg.methodKV.getDbl("neighbor_size", 20.0));
+    moo->setParam("de_F",           cfg.methodKV.getDbl("de_F", 0.5));
+    moo->setParam("max_replace",    cfg.methodKV.getDbl("max_replace", 2.0));
+    moo->setParam("inertia_w",      cfg.methodKV.getDbl("inertia_w", 0.4));
+    moo->setParam("c1",             cfg.methodKV.getDbl("c1", 1.5));
+    moo->setParam("c2",             cfg.methodKV.getDbl("c2", 1.5));
+    moo->setParam("archive_size",   cfg.methodKV.getDbl("archive_size", double(population)));
+    const double mutProb = cfg.methodKV.getDbl("mutation_prob", -1.0);
+    if (mutProb >= 0.0) moo->setParam("mutation_prob", mutProb);
 
     std::fprintf(stdout, "[multi] method=%s problem=%s dim=%d objectives=%d population=%d generations=%d\n",
                  method.c_str(), problem.c_str(), dim, prob->numObjectives(), population, generations);

@@ -152,6 +152,10 @@
 #include "problems/cec2017_f28.h"
 #include "problems/cec2017_f29.h"
 #include "problems/cec2017_f30.h"
+#include "problems/zdt1.h"
+#include "problems/zdt2.h"
+#include "problems/zdt3.h"
+#include "problems/zdt4.h"
 
 #include "problems/weatherirrigation.h"
 #include "problems/smartportenergy.h"
@@ -242,6 +246,8 @@
 
 // multi-objective methods (optional; additive)
 #include "methods/nsga2.h"
+#include "methods/moead.h"
+#include "methods/mopso.h"
 
 namespace optimsolution {
 
@@ -397,6 +403,10 @@ std::unique_ptr<Problem> makeProblem(const std::string& raw) {
 	if (name == "cec2017f28") return std::make_unique<optimsolution::CEC2017F28>();
 	if (name == "cec2017f29") return std::make_unique<optimsolution::CEC2017F29>();
 	if (name == "cec2017f30") return std::make_unique<optimsolution::CEC2017F30>();
+	if (name == "zdt1") return std::make_unique<optimsolution::ZDT1>();
+	if (name == "zdt2") return std::make_unique<optimsolution::ZDT2>();
+	if (name == "zdt3") return std::make_unique<optimsolution::ZDT3>();
+	if (name == "zdt4") return std::make_unique<optimsolution::ZDT4>();
 	
 	if (name == "weatherirrigation") return std::make_unique<optimsolution::WeatherIrrigation>();	
 	if (name == "smartportenergy") return std::make_unique<optimsolution::SmartPortEnergy>();	
@@ -497,7 +507,7 @@ std::vector<std::string> listProblemNames() {
     // NOTE: keep this list in sync with makeProblem().
     // Returned identifiers are short names accepted by the CLI/GUI.
     return {
-        "datacentercooling","smartportenergy","weatherirrigation","cec2022composition7","cec2022composition6","cec2022composition2","cec2022composition1","cec2022hybrid6","cec2022hybrid10","cec2022hybrid2","cec2022levy", "cec2022noncontinuousrastrigin","cec2022schafferf7","cec2022rosenbrock","cec2022zakharov","cec2017f1","cec2017f3","cec2017f4","cec2017f5","cec2017f6","cec2017f7","cec2017f8","cec2017f9","cec2017f10","cec2017f11","cec2017f12","cec2017f13","cec2017f14","cec2017f15","cec2017f16","cec2017f17","cec2017f18","cec2017f19","cec2017f20","cec2017f21","cec2017f22","cec2017f23","cec2017f24","cec2017f25","cec2017f26","cec2017f27","cec2017f28","cec2017f29","cec2017f30","rastrigin","rosenbrock","potential","ackley","sphere","griewank","levy",
+        "datacentercooling","smartportenergy","weatherirrigation","cec2022composition7","cec2022composition6","cec2022composition2","cec2022composition1","cec2022hybrid6","cec2022hybrid10","cec2022hybrid2","cec2022levy", "cec2022noncontinuousrastrigin","cec2022schafferf7","cec2022rosenbrock","cec2022zakharov","cec2017f1","cec2017f3","cec2017f4","cec2017f5","cec2017f6","cec2017f7","cec2017f8","cec2017f9","cec2017f10","cec2017f11","cec2017f12","cec2017f13","cec2017f14","cec2017f15","cec2017f16","cec2017f17","cec2017f18","cec2017f19","cec2017f20","cec2017f21","cec2017f22","cec2017f23","cec2017f24","cec2017f25","cec2017f26","cec2017f27","cec2017f28","cec2017f29","cec2017f30","zdt1","zdt2","zdt3","zdt4","rastrigin","rosenbrock","potential","ackley","sphere","griewank","levy",
         "booth","beale","matyas","mccormick","colville","dixonprice","trid","powell","alpine1","salomon","whitley","perm",
         "cassini1","sagas","gtoc1","rosetta","stirredtankreactor",
         "weldedbeam","speedreducer","pressurevessel","springdesign","cantileverbeam","threebartruss","geartrain",
@@ -540,7 +550,7 @@ bool isMultiObjectiveProblem(const std::string& name) {
     // problem has actually been given a numObjectives()>=2 override AND been
     // verified to init() safely at a small probe dimension.
     static const std::vector<std::string> kKnownMultiObjective = {
-        "portfoliomv",
+        "portfoliomv", "zdt1", "zdt2", "zdt3", "zdt4",
     };
     const std::string lname = toLower(name);
     for (const auto& n : kKnownMultiObjective) {
@@ -559,12 +569,14 @@ std::vector<std::string> listMultiObjectiveProblemNames() {
 
 std::vector<std::string> listMultiObjectiveMethodNames() {
     // NOTE: keep this list in sync with makeMultiObjectiveMethod().
-    return { "nsga2" };
+    return { "nsga2", "moead", "mopso" };
 }
 
 std::unique_ptr<MOOOptimizer> makeMultiObjectiveMethod(const std::string& raw) {
     auto name = toLower(raw);
     if (name == "nsga2") return std::make_unique<NSGA2>();
+    if (name == "moead") return std::make_unique<MOEAD>();
+    if (name == "mopso") return std::make_unique<MOPSO>();
     return nullptr;
 }
 
