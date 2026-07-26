@@ -2,7 +2,7 @@
   <img src="./docs/optimsolution.png" alt="Optimsolution logo" width="720">
 </p>
 
-Optimsolution (version 52) is a C++ optimization framework that combines a full-featured Qt-based GUI with a CLI for experimenting with population-based metaheuristics and numerical optimizers across benchmark and real-world problems. The GUI drives the complete workflow selecting methods and problems, configuring runs, launching batch experiments, visualizing convergence, and analyzing results through ranking tables and statistical tests while the CLI provides the same capabilities for scripted and headless execution. Both interfaces share the same optimization core and configuration file, and both support explicit computational budgets, multiple initialization strategies, local search integration, and sensitivity analysis of method and problem parameters.
+Optimsolution (version 53) is a C++ optimization framework that combines a full-featured Qt-based GUI with a CLI for experimenting with population-based metaheuristics and numerical optimizers across benchmark and real-world problems. The GUI drives the complete workflow selecting methods and problems, configuring runs, launching batch experiments, visualizing convergence, and analyzing results through ranking tables and statistical tests while the CLI provides the same capabilities for scripted and headless execution. Both interfaces share the same optimization core and configuration file, and both support explicit computational budgets, multiple initialization strategies, local search integration, and sensitivity analysis of method and problem parameters.
 
 > English manual: [optimsolution_manual_EN.pdf](./docs/optimsolutionManual_EN.pdf)
 >
@@ -10,7 +10,9 @@ Optimsolution (version 52) is a C++ optimization framework that combines a full-
 
 ---
 
-## 1) What changed from v51 to v52
+## 1) Changelog
+
+### v51 → v52
 
 ### OpenMP parallelization across every run mode
 Independent runs can now execute in parallel via OpenMP instead of strictly one-at-a-time. This applies uniformly to **all four run modes** — Single run, Batch run, and both Sensitivity analysis modes (method parameters and problem parameters) — since all of them are ultimately built on the same "N independent runs" execution path.
@@ -36,6 +38,50 @@ A systematic review of the problem library turned up and corrected a number of i
 ### Code Wizard improvements
 The **Code Wizard** panel supports creating and deleting methods and problems directly from the GUI. When a new method or problem is generated or deleted, the application writes a pending-rebuild flag (`.rebuild_pending`) and prompts for a restart. On the next startup, if the flag is detected, the GUI offers to rebuild automatically before loading the factory — eliminating the LNK1104 locked-executable error that would otherwise occur on Windows.
 
+### v52 → v53
+
+#### New run mode: Multi-objective optimization
+A fifth run mode joins Single/Batch/Sensitivity: **Multi-objective optimization**, producing a Pareto front instead of a single best value. Its settings panel lists **Method** first, then **Problem**, then **Dimension** — population and generations are intentionally **not** exposed here; like every other run mode, they are read from `optimsolution.cfg` (each method's own section, e.g. `[nsga2]`), so a batch of multi-objective runs stays configured from the same single file as everything else. Output CSVs from this mode are written to `optimsolution_gui_run/`, matching the convention already used by Single/Batch/Sensitivity, instead of the application's root folder.
+
+New multi-objective methods (3):
+
+| Short name | Full name |
+|---|---|
+| `nsga2` | NSGA-II (Non-dominated Sorting Genetic Algorithm II) |
+| `moead` | MOEA/D-DE (decomposition-based, Tchebycheff scalarization) |
+| `mopso` | Multi-Objective Particle Swarm Optimization (external archive + crowding-based leader selection) |
+
+New multi-objective benchmark problems — the ZDT family (Zitzler-Deb-Thiele), each with a known analytic Pareto front for validating that a method actually converges to the right front rather than merely producing *some* trade-off curve:
+
+| Problem | Pareto front shape | What it stresses |
+|---|---|---|
+| `zdt1` | Convex | Baseline correctness |
+| `zdt2` | Concave | Non-convexity (defeats naive weighted-sum scalarization) |
+| `zdt3` | Disconnected (~5 arcs) | Diversity preservation across disjoint regions |
+| `zdt4` | Convex, surrounded by ~21^(D-1) local fronts | Global convergence vs. deceptive local fronts |
+
+#### New single-objective methods
+- **`rdex`** — RDEx-SOP, winner of the IEEE CEC 2025 Single-Objective Optimization competition. Hybridizes a standard current-to-pbest/1 branch with an exploitation-biased branch, adapted via success-history memories and linear population reduction.
+- **`rde`** — RDE (Reconstructed Differential Evolution), RDEx-SOP's predecessor: adds a JADE/SHADE-style external archive and Extended Rank-based Selective Pressure (RSP) on top of the same success-history lineage, with population scaled to dimension (`Nmax = 18·D`, budget-aware capped so high-D runs are not starved of generations under this project's fixed `max_evals` convention).
+
+Both were corrected after benchmarking surfaced two real bugs: `rdex`'s Cauchy local-perturbation step originally gated every non-crossover dimension independently, making its disruptiveness scale with D (fine at low D, corrosive at high D) — fixed to perturb a single randomly chosen dimension per individual, matching standard iLSHADE-RSP-style local perturbation. `rde` additionally needed the budget-aware population cap described above for the same underlying reason (population and generation-count trading off very differently once the evaluation budget stops scaling with D).
+
+#### Full CEC2017 benchmark suite (29 of 29 usable functions)
+Every function in the CEC2017 bound-constrained single-objective suite is now available — `cec2017f1`, `cec2017f3` through `cec2017f30` (F2 is **not** missing by omission: it was officially deleted from the suite by the benchmark's own authors due to a known instability, and the official reference code refuses to evaluate it). Coverage: 2 unimodal, 7 simple multimodal, 10 hybrid, and 10 composition functions, each supporting **D = 10, 30, 50** (the dimensions the official data files actually provide — the GUI's dimension spinbox now enforces this, see below).
+
+Every function's shift vector, rotation matrix, and (where applicable) shuffle permutation are the **exact official data**, extracted from the official release and verified by recompiling the official C reference implementation locally (after fixing a `%Lf`/`%lf` scanf format bug in that reference code that otherwise corrupts data loading under Linux/GCC) and comparing outputs point-for-point. Two verified reference-code quirks are deliberately **reproduced rather than "fixed"**, since every published CEC2017 comparison table was computed against this exact behavior: the standalone F6 and part of the F14/F20 hybrids read a stale, unrotated/misaligned buffer instead of their own correctly-transformed input, and F8's "non-continuous" rounding step is silently overwritten before it can take effect, making F8 numerically identical to a plain rotated Rastrigin. Both are called out explicitly in the corresponding source files.
+
+#### GUI dimension input now enforces what a problem actually supports
+Some problems accept more than one dimension but not an arbitrary one — CEC2017 only supports D ∈ {10, 30, 50}, CEC2022 only D ∈ {10, 20}. The dimension spinbox previously had no notion of this and would happily accept (and pass to the CLI, where it would fail) any value in its general range. It now:
+- Restricts the spinbox's range and step to the problem's actual allowed set once such a problem is selected (so the up/down arrows step directly between valid values, e.g. 10 → 30 → 50, rather than one-by-one through unsupported values in between).
+- Snaps a manually typed value to the nearest allowed one once editing finishes, without interrupting mid-keystroke typing.
+- Fully restores the standard unrestricted range when switching back to a scalable problem, so a prior restriction never lingers.
+
+This is a separate mechanism from the existing single-fixed-dimension handling (e.g. `antennaarray`, `tnep`), which is unaffected.
+
+#### Settings dialog simplification
+**Reload settings** no longer asks for confirmation before reloading — it reloads immediately and shows only the existing "reloaded successfully" message, matching **Save settings**' single-message behavior.
+
 ---
 
 ## 2) Available methods and problems (CLI)
@@ -51,7 +97,7 @@ or
 optimsolution <method> <problem> <dimension>
 ```
 
-### Methods (69)
+### Methods (74)
 
 #### Differential evolution and variants
 
@@ -71,6 +117,8 @@ optimsolution <method> <problem> <dimension>
 | `mlshaderl` | Multi-operator L-SHADE with Reinforcement Learning |
 | `nlshadelbc` | NL-SHADE-LBC |
 | `pde` | Parallel Differential Evolution |
+| `rde` | RDE: Reconstructed Differential Evolution |
+| `rdex` | RDEx-SOP: Exploitation-Biased Reconstructed Differential Evolution (IEEE CEC 2025 SOP winner) |
 | `sade` | Self-adaptive Differential Evolution (SaDE) |
 | `sfcde` | Success-Failure Competitive Differential Evolution |
 | `sparq` | SPARQ Optimizer |
@@ -137,7 +185,14 @@ optimsolution <method> <problem> <dimension>
 | `lbfgs` | Limited-memory Broyden-Fletcher-Goldfarb-Shanno |
 | `nm` | Nelder-Mead Simplex |
 
-### Problems (124)
+#### Multi-objective methods (used only in the Multi-objective optimization run mode)
+| Short name | Full name |
+|---|---|
+| `nsga2` | NSGA-II (Non-dominated Sorting Genetic Algorithm II) |
+| `moead` | MOEA/D-DE (decomposition-based, Tchebycheff scalarization) |
+| `mopso` | Multi-Objective Particle Swarm Optimization |
+
+### Problems (157)
 
 #### Classical and synthetic benchmarks
 
@@ -180,6 +235,26 @@ optimsolution <method> <problem> <dimension>
 `cec2022_noncontinuous_rastrigin`, `cec2022_levy`, `cec2022_hybrid2`, `cec2022_hybrid6`,
 `cec2022_hybrid10`, `cec2022_composition1`, `cec2022_composition2`, `cec2022_composition6`,
 `cec2022_composition7`
+
+#### CEC 2017 functions (29 of 29 usable functions -- F2 was officially deleted by the benchmark's own authors)
+
+`cec2017f1`, `cec2017f3`, `cec2017f4`, `cec2017f5`, `cec2017f6`, `cec2017f7`, `cec2017f8`,
+`cec2017f9`, `cec2017f10`, `cec2017f11`, `cec2017f12`, `cec2017f13`, `cec2017f14`, `cec2017f15`,
+`cec2017f16`, `cec2017f17`, `cec2017f18`, `cec2017f19`, `cec2017f20`, `cec2017f21`, `cec2017f22`,
+`cec2017f23`, `cec2017f24`, `cec2017f25`, `cec2017f26`, `cec2017f27`, `cec2017f28`, `cec2017f29`,
+`cec2017f30`
+
+All shift vectors, rotation matrices, and shuffle permutations are the exact official data,
+verified against a recompiled copy of the official reference implementation. Every function
+supports **D = 10, 30, 50** (see the source comments in `src/problems/cec2017_f6.h`,
+`cec2017_f8.h`, `cec2017_f14.h`, and `cec2017_f20.h` for the reference-code quirks that are
+deliberately reproduced rather than "fixed").
+
+#### Multi-objective benchmarks (used only in the Multi-objective optimization run mode)
+
+`zdt1`, `zdt2`, `zdt3`, `zdt4`
+*(see also `portfoliomv` above, under Real-world and application-driven problems -- it is
+multi-objective too)*
 
 ---
 
@@ -323,8 +398,9 @@ The GUI and CLI share the same optimization core. The GUI adds four run modes, c
 | **Batch run** | All selected methods × all selected problems for N runs. Results appear in eight analysis views: Results Table, Best Table, Mean Table, Best Ranking, Mean Ranking, Final Ranking, Pairwise Wilcoxon, Friedman Ranking. |
 | **Sensitivity analysis of method parameters** | Sweeps method parameters over a defined range (problem fixed). Shows how each parameter value affects the result. |
 | **Sensitivity analysis of problem parameters** | Sweeps problem parameters such as dimension or bounds (method fixed). Characterizes problem difficulty as a function of its own configuration. |
+| **Multi-objective optimization** | Runs a Pareto-based method (`nsga2`, `moead`, `mopso`) against a multi-objective problem (`zdt1`-`zdt4`, `portfoliomv`) and plots the resulting Pareto front. Population and generations are read from `optimsolution.cfg`, not set in this panel. |
 
-All four modes can now run their independent repetitions in parallel via OpenMP (see [§5](#5-settings-optimsolutioncfg)), with results that are numerically identical to a fully serial run.
+All four single-objective modes above can run their independent repetitions in parallel via OpenMP (see [§5](#5-settings-optimsolutioncfg)), with results that are numerically identical to a fully serial run.
 
 ### Why the GUI is significantly faster than running the CLI directly
 
