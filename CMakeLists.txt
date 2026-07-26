@@ -166,6 +166,10 @@ add_library(optimcore
     src/problems/cec2017_f28.cpp
     src/problems/cec2017_f29.cpp
     src/problems/cec2017_f30.cpp
+    src/problems/zdt1.cpp
+    src/problems/zdt2.cpp
+    src/problems/zdt3.cpp
+    src/problems/zdt4.cpp
 	
 	src/problems/weatherirrigation.cpp	
 	src/problems/smartportenergy.cpp		
@@ -253,6 +257,8 @@ add_library(optimcore
     src/methods/bfgs.cpp
 
     src/methods/nsga2.cpp
+    src/methods/moead.cpp
+    src/methods/mopso.cpp
 
     src/localsearch.cpp
     src/factory.cpp
