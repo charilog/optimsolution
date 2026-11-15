@@ -64,8 +64,13 @@ void RARQ::init()
 
     const int D = prob_->dimension();
 
-    N_ = population();
-    if (N_ < 4) N_ = std::max(pop_init_, 4);
+    // population=0 (or unset): pop_init_ already safely retains its own
+    // compiled-in default (see configure(): the override is only applied
+    // when population>3) -- the bug was here in init(), which ignored
+    // pop_init_ and used [global] population() instead. Fixed to use
+    // pop_init_ (this codebase's own ARQ-family default for RARQ).
+    N_ = std::max(4, pop_init_);
+
     if (N_ < pop_min_) N_ = pop_min_;
 
     Optimizer::setPopulation(N_);

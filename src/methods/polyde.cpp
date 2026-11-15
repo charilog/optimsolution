@@ -372,11 +372,16 @@ void PolyphaseDE::finalLocalSearch_() {
 
 void PolyphaseDE::configure(const MethodConfig& mc) {
     // base population
+    // population=0 (or unset): internal method, no external published
+    // literature default; N=100 is this codebase's general convention.
+    // Previously population=0 silently fell back to [global] population
+    // (default 100, harmless here since 100 is now also the intended
+    // default, but made explicit/robust rather than accidental) -- fixed here.
     int p = mc.getInt("population",
             mc.getInt("pop",
-            mc.getInt("Pop", pop_)));
-    if (p < 4) p = pop_;
-    pop_ = p;
+            mc.getInt("Pop", 0)));
+    pop_ = (p >= 4) ? p : 100;
+
     this->setPopulation(pop_);
 
     // probabilities init

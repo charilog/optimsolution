@@ -127,27 +127,11 @@ double BucheRastrigin::evaluate_core(const Vec& x)
 
 void BucheRastrigin::gradient_core(const Vec& x, Vec& g)
 {
-    // Numeric forward differences: T_osz's derivative is fiddly enough
-    // (and this is a derivative-free benchmark suite anyway, per
-    // gallagher101.cpp's same choice) that a finite-difference gradient is
-    // the safer, less error-prone option here.
-    const int D = dimension();
-    g.assign(D, 0.0);
-
-    const double f0 = evaluate_core(x);
-    Vec xt = x;
-
-    for (int k = 0; k < D; ++k) {
-        double h = std::max(1e-6, std::abs(x[k]) * 1e-6);
-        if (x[k] + h > 5.0)
-            h = std::min(h, 5.0 - x[k]);
-        if (h <= 0.0) { g[k] = 0.0; continue; }
-
-        xt[k] = x[k] + h;
-        const double f1 = evaluate_core(xt);
-        g[k] = (f1 - f0) / h;
-        xt[k] = x[k];
-    }
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

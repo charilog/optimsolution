@@ -16,8 +16,15 @@ void DE::init(){
 
     const int D = prob_->dimension();
 
-    // If an override exists in [de], it takes precedence; otherwise [global] population() is used
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): literature default. Storn's own rule of
+    // thumb (R. Storn, "On the usage of differential evolution for function
+    // optimization," NAFIPS 1996; restated in Storn & Price 1997) is
+    // NP between 3*D and 10*D; NP=10*D is the value most commonly cited
+    // and reused as DE's "standard" population size in the follow-up
+    // literature. Previously population=0 silently fell back to [global]
+    // population (default 100, dimension-independent) instead of DE's own
+    // D-scaled default -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 10 * D));
 
     // Synchronization is performed here as well for full consistency with the reporter
     this->setPopulation(N);

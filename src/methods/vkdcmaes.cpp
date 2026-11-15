@@ -1,16 +1,23 @@
 #include "vkdcmaes.h"
+#include "init.h"
+
 #include <numeric>
 #include <limits>
+#include <cctype>
+
+// Port of the official VkD-CMA (Akimoto & Hansen 2016) -- see vkdcmaes.h.
+// Comments "[ref: ...]" refer to the corresponding statement of the
+// reference implementation (pypop7/optimizers/nes/vkdcma.py, which follows
+// Y. Akimoto's official Python code).
 
 namespace optimsolution {
 
 void VkDCMAES::configure(const MethodConfig& mc) {
-    lambda_cfg_    = mc.getInt("lambda", lambda_cfg_);
-    k_cfg_         = mc.getInt("k", k_cfg_);
-    k_init_        = mc.getInt("k_init", k_init_);
-    k_max_cfg_     = mc.getInt("k_max", k_max_cfg_);
-    sigma0_        = mc.getDbl("sigma0", sigma0_);
-    grow_patience_ = mc.getInt("grow_patience", grow_patience_);
+    lambda_cfg_ = mc.getInt("lambda", lambda_cfg_);
+    const int pop_override = mc.getInt("population", 0);
+    if (pop_override > 3) lambda_cfg_ = pop_override;
+    sigma0_ = mc.getDbl("sigma0", sigma0_);
+    if (!(sigma0_ > 0.0)) sigma0_ = 0.3;
 
     local_method_ = mc.getStr("local_method", local_method_);
     for (char& c : local_method_) c = (char)std::tolower((unsigned char)c);
@@ -18,19 +25,19 @@ void VkDCMAES::configure(const MethodConfig& mc) {
     if (lr < 0.0) lr = 0.0;
     if (lr > 1.0) lr = 1.0;
     local_rate_ = lr;
+
+    if (mc.kv.count("end_local_refine")) end_local_refine_ = mc.getBool("end_local_refine", end_local_refine_);
+    if (mc.kv.count("end_local_method")) end_local_method_ = mc.getStr("end_local_method", end_local_method_);
 }
 
 double VkDCMAES::safeEval(const Vec& x) {
     double f = prob_->evaluate(x);
     if (!std::isfinite(f)) f = std::numeric_limits<double>::infinity();
-    if (f < best_f_) {
-        best_f_ = f;
-        best_x_ = x;
-    }
+    if (f < best_f_) { best_f_ = f; best_x_ = x; }
     return f;
 }
 
-void VkDCMAES::ensureBounds(Vec& x) const {
+void VkDCMAES::clipToBounds(Vec& x) const {
     const auto& L = prob_->lb();
     const auto& U = prob_->ub();
     for (size_t j = 0; j < x.size(); ++j) {
@@ -40,319 +47,368 @@ void VkDCMAES::ensureBounds(Vec& x) const {
     }
 }
 
-// Sampling transform for ONE stored vector (Akimoto, Auger & Hansen,
-// GECCO'14, Section 3.3, "Step 1"): y <- y + c*<y,v>*v with
-// c = (sqrt(1+||v||^2)-1)/||v||^2. NOTE: the source paper's printed
-// formula omits the "/||v||^2"; this was verified numerically (Monte
-// Carlo covariance check against I+vv^T, see delivery notes) to be
-// required for the transform to actually produce the claimed
-// N(0, I+vv^T) distribution, so it is included here.
-void VkDCMAES::applyVjSample(const Vec& vj, double vj_norm2, Vec& y) const {
-    if (vj_norm2 < 1e-300) return;
-    double dot = 0.0;
-    for (size_t k = 0; k < y.size(); ++k) dot += y[k] * vj[k];
-    const double c = (std::sqrt(1.0 + vj_norm2) - 1.0) / vj_norm2;
-    const double scale = c * dot;
-    for (size_t k = 0; k < y.size(); ++k) y[k] += scale * vj[k];
+// [ref: _get_lr(k)]
+void VkDCMAES::setLearningRates() {
+    const double n = (double)n_, k = (double)k_;
+    c1_  = 2.0 / (n * (k + 1.0) + n + 2.0 * (k + 2.0) + mu_eff_);
+    cmu_ = std::min(1.0 - c1_, 2.0 * (mu_eff_ - 2.0 + 1.0 / mu_eff_) /
+                               (n * (k + 1.0) + 4.0 * (k + 2.0) + mu_eff_));
+    if (cmu_ < 0.0) cmu_ = 0.0;
+    cc_  = std::sqrt(c1_);
 }
 
-// Theorem 3.6 (Akimoto, Auger & Hansen, GECCO'14): O(d) computation of the
-// (numerically-stabilised, via the alpha/A/b correction of Proposition 3.5)
-// natural gradient of the log-likelihood w.r.t. v and theta_D, for ONE
-// vector v_j treated in isolation (see class-level comment for why: the
-// k>1 joint derivation was not available to verify).
-void VkDCMAES::naturalGradientOneVector(const Vec& ycoord, const Vec& vj, double vj_norm2,
-                                         Vec& gs, Vec& gt) const {
-    const int D = (int)ycoord.size();
-    const double gamma_v = 1.0 + vj_norm2; // "gamma_v" in the paper
+// [ref: _get_det(d, s)] = 2 sum log d + sum_{j<k_a} log(1 + s_j)
+double VkDCMAES::logDet() const {
+    double v = 0.0;
+    for (int i = 0; i < n_; ++i) v += 2.0 * std::log(d_[i]);
+    for (int j = 0; j < ka_; ++j) v += std::log(1.0 + s_[j]);
+    return v;
+}
 
-    double yv = 0.0; // <y, v>
-    for (int k = 0; k < D; ++k) yv += ycoord[k] * vj[k];
-
-    // alpha: this implementation's safe simplification of the paper's
-    // Proposition 3.5 (see class-level comment).
-    const double gamma = 1.0 / std::sqrt(gamma_v);
-    const double alpha = std::min(1.0, gamma);
-
-    const double b = -(1.0 - alpha * alpha) * (vj_norm2 * vj_norm2) / gamma_v
-                    + 2.0 * alpha * alpha;
-
-    if ((int)scratch_Ainv_.size() != D) {
-        scratch_s_.assign(D, 0.0);
-        scratch_t_.assign(D, 0.0);
-        scratch_Ainv_.assign(D, 0.0);
-        scratch_Ainv_v_.assign(D, 0.0);
-        scratch_Ainv_s_.assign(D, 0.0);
+// [ref: _get_m(d_x, d, v, s)]
+double VkDCMAES::mahalanobisSqOfDx() const {
+    Vec dxd(n_);
+    double a = 0.0;
+    for (int i = 0; i < n_; ++i) { dxd[i] = dx_[i] / d_[i]; a += dxd[i] * dxd[i]; }
+    double b = 0.0;
+    for (int j = 0; j < ka_; ++j) {
+        double p = 0.0;
+        for (int i = 0; i < n_; ++i) p += v_[j][i] * dxd[i];
+        b += p * p * (s_[j] / (s_[j] + 1.0));
     }
-    Vec& Ainv = scratch_Ainv_;
-    for (int k = 0; k < D; ++k) {
-        double Aii = 2.0 - (b + 2.0 * alpha) * vj[k] * vj[k];
-        if (Aii < 1e-8) Aii = 1e-8;
-        Ainv[k] = 1.0 / Aii;
-    }
+    return a - b;
+}
 
-    Vec& s = scratch_s_;
-    Vec& t = scratch_t_;
-
-    // Step 1: s <- y.*y - gamma_v^{-1} <y,v> y.*v - 1
-    for (int k = 0; k < D; ++k) {
-        s[k] = ycoord[k] * ycoord[k] - (yv / gamma_v) * ycoord[k] * vj[k] - 1.0;
-    }
-    // Step 2: t <- <y,v> y - 0.5*(<y,v>^2 + gamma_v) v
-    {
-        const double coeff = 0.5 * (yv * yv + gamma_v);
-        for (int k = 0; k < D; ++k) t[k] = yv * ycoord[k] - coeff * vj[k];
-    }
-    // Step 3: s <- s - alpha*gamma_v^{-1} * [ (2+||v||^2) v.*t - ||v||^2 <v,t> v ]
-    {
-        double vt = 0.0;
-        for (int k = 0; k < D; ++k) vt += vj[k] * t[k];
-        const double f1 = alpha / gamma_v;
-        for (int k = 0; k < D; ++k) {
-            s[k] -= f1 * ((2.0 + vj_norm2) * vj[k] * t[k] - vj_norm2 * vt * vj[k]);
+void VkDCMAES::symEig(std::vector<double> A, int m, Vec& ev, std::vector<double>& V) {
+    V.assign((size_t)m * m, 0.0);
+    for (int i = 0; i < m; ++i) V[(size_t)i * m + i] = 1.0;
+    for (int sweep = 0; sweep < 100; ++sweep) {
+        double off = 0.0, diag = 0.0;
+        for (int p = 0; p < m; ++p) {
+            diag += A[(size_t)p * m + p] * A[(size_t)p * m + p];
+            for (int q = p + 1; q < m; ++q) off += A[(size_t)p * m + q] * A[(size_t)p * m + q];
+        }
+        if (off <= 1e-30 * std::max(1e-300, diag)) break;
+        for (int p = 0; p < m; ++p) {
+            for (int q = p + 1; q < m; ++q) {
+                const double apq = A[(size_t)p * m + q];
+                if (std::fabs(apq) < 1e-300) continue;
+                const double app = A[(size_t)p * m + p], aqq = A[(size_t)q * m + q];
+                const double theta = (aqq - app) / (2.0 * apq);
+                const double t = (theta >= 0.0 ? 1.0 : -1.0) / (std::fabs(theta) + std::sqrt(theta * theta + 1.0));
+                const double c = 1.0 / std::sqrt(t * t + 1.0), s = t * c;
+                for (int r = 0; r < m; ++r) {
+                    const double arp = A[(size_t)r * m + p], arq = A[(size_t)r * m + q];
+                    A[(size_t)r * m + p] = c * arp - s * arq;
+                    A[(size_t)r * m + q] = s * arp + c * arq;
+                }
+                for (int r = 0; r < m; ++r) {
+                    const double apr = A[(size_t)p * m + r], aqr = A[(size_t)q * m + r];
+                    A[(size_t)p * m + r] = c * apr - s * aqr;
+                    A[(size_t)q * m + r] = s * apr + c * aqr;
+                }
+                for (int r = 0; r < m; ++r) {
+                    const double vrp = V[(size_t)r * m + p], vrq = V[(size_t)r * m + q];
+                    V[(size_t)r * m + p] = c * vrp - s * vrq;
+                    V[(size_t)r * m + q] = s * vrp + c * vrq;
+                }
+            }
         }
     }
-    // Step 4: s <- A^{-1}s - (1+b<v,A^{-1}v>)^{-1} b <s,A^{-1}v> A^{-1}v
-    {
-        Vec& Ainv_v = scratch_Ainv_v_;
-        Vec& Ainv_s = scratch_Ainv_s_;
-        for (int k = 0; k < D; ++k) { Ainv_v[k] = Ainv[k] * vj[k]; Ainv_s[k] = Ainv[k] * s[k]; }
-        double v_Ainv_v = 0.0, s_Ainv_v = 0.0;
-        for (int k = 0; k < D; ++k) { v_Ainv_v += vj[k] * Ainv_v[k]; s_Ainv_v += s[k] * Ainv_v[k]; }
-        const double denom = 1.0 + b * v_Ainv_v;
-        const double coeff = (std::fabs(denom) > 1e-12) ? (b * s_Ainv_v / denom) : 0.0;
-        for (int k = 0; k < D; ++k) s[k] = Ainv_s[k] - coeff * Ainv_v[k];
-    }
-    // Step 5: t <- t - alpha*[ (2+||v||^2) v.*s - <s,v> v ]
-    {
-        double sv = 0.0;
-        for (int k = 0; k < D; ++k) sv += s[k] * vj[k];
-        for (int k = 0; k < D; ++k) {
-            t[k] -= alpha * ((2.0 + vj_norm2) * vj[k] * s[k] - sv * vj[k]);
-        }
-    }
-
-    gs = s; // caller still receives owned copies (gs/gt are accumulated
-    const double vnorm = std::sqrt(vj_norm2); // into per-call sums by the caller)
-    gt.assign(D, 0.0);
-    if (vnorm > 1e-300) {
-        for (int k = 0; k < D; ++k) gt[k] = t[k] / vnorm;
-    }
+    ev.assign(m, 0.0);
+    for (int i = 0; i < m; ++i) ev[i] = A[(size_t)i * m + i];
 }
 
 void VkDCMAES::init() {
     if (!prob_) return;
-    const int D = prob_->dimension();
-    if (D <= 0) return;
-    const double n = (double)D;
+    n_ = prob_->dimension();
+    if (n_ <= 0) return;
+    const double n = (double)n_;
 
-    lambda_ = (lambda_cfg_ > 0) ? lambda_cfg_
-                                 : std::max(4, 4 + (int)std::floor(3.0 * std::log(n)));
+    // [ref: ES base] lambda = 4 + floor(3 ln n), mu = floor(lambda/2),
+    // w_i = (ln((lambda+1)/2) - ln i) / sum, mu_eff = 1 / sum w^2
+    lambda_ = (lambda_cfg_ > 3) ? lambda_cfg_ : 4 + (int)std::floor(3.0 * std::log(n));
+    if (lambda_ < 4) lambda_ = 4;
     mu_ = std::max(1, lambda_ / 2);
-
     w_.assign(mu_, 0.0);
-    double sumw2 = 0.0;
     {
-        double denom = 0.0;
-        std::vector<double> raw(mu_);
-        for (int i = 1; i <= mu_; ++i) {
-            raw[i - 1] = std::log((double)mu_ + 0.5) - std::log((double)i);
-            denom += raw[i - 1];
-        }
-        for (int i = 0; i < mu_; ++i) { w_[i] = raw[i] / denom; sumw2 += w_[i] * w_[i]; }
+        const double wb = std::log((lambda_ + 1.0) / 2.0);
+        double sum = 0.0;
+        for (int i = 0; i < mu_; ++i) { w_[i] = wb - std::log(i + 1.0); sum += w_[i]; }
+        double s2 = 0.0;
+        for (int i = 0; i < mu_; ++i) { w_[i] /= sum; s2 += w_[i] * w_[i]; }
+        mu_eff_ = 1.0 / s2;
     }
-    mu_eff_ = 1.0 / sumw2;
+    setPopulation(lambda_);
 
-    // Standard CMA-ES constants (Eq. 4), then VD-CMA's rescaling of
-    // c_sigma, c1, c_mu (Section 3.3) for the richer per-step learning
-    // rate the restricted, lower-dimensional model affords.
-    const double c_sigma_std = (mu_eff_ + 2.0) / (n + mu_eff_ + 5.0);
-    c_c_ = (4.0 + mu_eff_ / n) / (n + 4.0 + 2.0 * mu_eff_ / n);
-    const double c1_std  = 2.0 / ((n + 1.3) * (n + 1.3) + mu_eff_);
-    const double cmu_std = std::min(1.0 - c1_std,
-                                     2.0 * (mu_eff_ - 2.0 + 1.0 / mu_eff_) / ((n + 2.0) * (n + 2.0) + mu_eff_));
-
-    c_sigma_ = std::sqrt(mu_eff_) / (2.0 * (std::sqrt(n) + std::sqrt(mu_eff_)));
-    const double rescale = std::max(1.0, (n - 5.0) / 6.0);
-    c1_  = rescale * c1_std;
-    cmu_ = std::min(1.0 - c1_, rescale * cmu_std);
-    d_sigma_ = 1.0 + c_sigma_ + 2.0 * std::max(0.0, std::sqrt(std::max(0.0, (mu_eff_ - 1.0) / (n + 1.0))) - 1.0);
-
-    // --- k (rank) setup ---
-    k_max_ = (k_max_cfg_ > 0) ? k_max_cfg_
-                               : std::max(1, std::min(D, 4 + (int)std::floor(3.0 * std::log(n))));
-    k_ = (k_cfg_ > 0) ? std::min(k_cfg_, k_max_) : std::max(1, std::min(k_init_, k_max_));
-    grow_streak_ = 0;
-
-    V_.assign(k_max_, Vec(D, 0.0));
-    c_v_.assign(k_max_, 0.0);
-    std::normal_distribution<double> N01small(0.0, 1.0);
-    for (int j = 0; j < k_max_; ++j) {
-        // Exponentially spaced per-vector learning rate (LM-MA-ES-style),
-        // giving each stored direction a different characteristic
-        // timescale instead of all k vectors competing for one.
-        c_v_[j] = cmu_ / std::pow(1.5, (double)j);
-        if (j < k_) {
-            // Small random init (per the paper: v ~ N(0, I/d)) so the
-            // vector has a well-defined, generic initial direction.
-            for (int kk = 0; kk < D; ++kk) V_[j][kk] = N01small(rng_) / std::sqrt(n);
-        }
-    }
+    // [ref: initialize()]
+    k_ = ka_ = ki_ = 0;
+    cs_ = 0.3;
+    ds_ = std::sqrt(n);
+    injection_ = false;
+    setLearningRates();
 
     const auto& L = prob_->lb();
     const auto& U = prob_->ub();
-    mean_.assign(D, 0.0);
     double avg_range = 0.0; int counted = 0;
-    for (int j = 0; j < D; ++j) {
-        const double lo = L[j], hi = U[j];
-        if (std::isfinite(lo) && std::isfinite(hi)) { mean_[j] = 0.5*(lo+hi); avg_range += (hi-lo); ++counted; }
-    }
+    for (int j = 0; j < n_; ++j)
+        if (std::isfinite(L[j]) && std::isfinite(U[j])) { avg_range += U[j] - L[j]; ++counted; }
     avg_range = (counted > 0) ? avg_range / counted : 10.0;
     sigma_ = sigma0_ * avg_range;
 
-    Dvec_.assign(D, 1.0);
-    p_sigma_.assign(D, 0.0);
-    p_c_.assign(D, 0.0);
-    t_ = 0;
+    {
+        Initializer initSampler;
+        initSampler.configure(initopt_);
+        auto pts = initSampler.samplePopulation(*prob_, rng_, 1);
+        mean_ = pts.empty() ? Vec(n_, 0.0) : pts[0];
+        mean_.resize(n_, 0.0);
+    }
 
-    best_x_.clear();
-    best_f_ = std::numeric_limits<double>::infinity();
+    d_.assign(n_, 1.0);
+    ps_ = 0.0;
+    v_.clear();
+    s_.assign(n_, 0.0);
+    pc_.assign(n_, 0.0);
+    dx_.assign(n_, 0.0);
+    l_s_ = std::log(sigma_);
+    l_d_.assign(n_, 0.0);
+    l_c_.assign(n_, 0.0);
 
-    Z_.assign(lambda_, Vec(D, 0.0));
-    Y_.assign(lambda_, Vec(D, 0.0));
+    Z_.assign(lambda_, Vec(n_, 0.0));
     F_.assign(lambda_, std::numeric_limits<double>::infinity());
+
+    best_x_ = mean_;
+    best_f_ = std::numeric_limits<double>::infinity();
 }
 
 void VkDCMAES::one_iteration() {
-    if (!prob_) return;
+    if (!prob_ || n_ <= 0) return;
     if (prob_->calls() >= max_evals_) return;
-    const int D = prob_->dimension();
-
+    const double n = (double)n_;
     std::normal_distribution<double> N01(0.0, 1.0);
 
+    // ---- sampling [ref: z = (N(0,I) + N(0,1)*sqrt(s) v) * d] ----
+    for (int i = 0; i < lambda_; ++i) {
+        Vec& z = Z_[i];
+        for (int c = 0; c < n_; ++c) z[c] = N01(rng_);
+        for (int j = 0; j < ka_; ++j) {
+            const double a = N01(rng_) * std::sqrt(std::max(0.0, s_[j]));
+            for (int c = 0; c < n_; ++c) z[c] += a * v_[j][c];
+        }
+        for (int c = 0; c < n_; ++c) z[c] *= d_[c];
+    }
+    if (injection_) {
+        // [ref: zz = (|N(0,I)| / sqrt(m(dx))) * dx; z0 = zz; z1 = -zz]
+        double nrm = 0.0;
+        for (int c = 0; c < n_; ++c) { const double g = N01(rng_); nrm += g * g; }
+        nrm = std::sqrt(nrm);
+        const double m = mahalanobisSqOfDx();
+        const double scale = (m > 0.0) ? nrm / std::sqrt(m) : 0.0;
+        if (lambda_ >= 2 && scale > 0.0 && std::isfinite(scale)) {
+            for (int c = 0; c < n_; ++c) { Z_[0][c] = scale * dx_[c]; Z_[1][c] = -scale * dx_[c]; }
+        }
+    }
+
+    // ---- evaluation (evaluated point clipped to the box) ----
     for (int i = 0; i < lambda_; ++i) {
         if (prob_->calls() >= max_evals_) {
-            for (; i < lambda_; ++i) F_[i] = std::numeric_limits<double>::infinity();
-            break;
+            // [ref: return before any update when the budget is exhausted]
+            printBest();
+            updateStop(F_);
+            return;
         }
-        Vec& z = Z_[i];
-        Vec& y = Y_[i];
-        for (int k = 0; k < D; ++k) z[k] = N01(rng_);
-        y = z;
-        for (int j = 0; j < k_; ++j) {
-            double vn2 = 0.0; for (double vv : V_[j]) vn2 += vv * vv;
-            applyVjSample(V_[j], vn2, y);
-        }
-        Vec x(D);
-        for (int k = 0; k < D; ++k) x[k] = mean_[k] + sigma_ * Dvec_[k] * y[k];
-        ensureBounds(x);
+        Vec x(n_);
+        for (int c = 0; c < n_; ++c) x[c] = mean_[c] + sigma_ * Z_[i][c];
+        clipToBounds(x);
+        // Box constraints (not handled by the unconstrained reference code):
+        // Lamarckian repair -- the distribution is updated from the point that
+        // was actually evaluated, z = (clip(x) - m) / sigma, as this
+        // framework's CMA-ES does. Updating from the unclipped z let the mean
+        // drift outside the box, where all clipped samples look alike, and
+        // the run stalled (sphere-10D: f ~ 4e3).
+        if (sigma_ > 0.0)
+            for (int c = 0; c < n_; ++c) Z_[i][c] = (x[c] - mean_[c]) / sigma_;
         F_[i] = safeEval(x);
     }
 
     std::vector<int> order(lambda_);
     std::iota(order.begin(), order.end(), 0);
-    std::sort(order.begin(), order.end(), [&](int a, int b){ return F_[a] < F_[b]; });
+    std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return F_[a] < F_[b]; });
 
-    // --- mean update: new_mean = old_mean + sigma * D .* (sum w_i y_{i:lambda}) ---
-    Vec mean_old = mean_;
-    Vec z_w(D, 0.0), y_w(D, 0.0);
-    for (int i = 0; i < mu_; ++i) {
-        const int idx = order[i];
-        for (int k = 0; k < D; ++k) {
-            z_w[k] += w_[i] * Z_[idx][k];
-            y_w[k] += w_[i] * Y_[idx][k];
-        }
+    // ---- mean [ref: d_x = w . s_z; mean += sigma d_x] ----
+    dx_.assign(n_, 0.0);
+    for (int i = 0; i < mu_; ++i)
+        for (int c = 0; c < n_; ++c) dx_[c] += w_[i] * Z_[order[i]][c];
+    for (int c = 0; c < n_; ++c) mean_[c] += sigma_ * dx_[c];
+
+    // ---- step size [ref: injection-based rank success] ----
+    double hs = 1.0;
+    if (injection_) {
+        int r0 = 0, r1 = 0;
+        for (int r = 0; r < lambda_; ++r) { if (order[r] == 0) r0 = r; if (order[r] == 1) r1 = r; }
+        ps_ += cs_ * ((double)(r1 - r0) / (lambda_ - 1.0) - ps_);
+        sigma_ *= std::exp(ps_ / ds_);
+        hs = (ps_ < 0.5) ? 1.0 : 0.0;
+    } else {
+        injection_ = true;
+        hs = 1.0;
     }
-    for (int k = 0; k < D; ++k) mean_[k] = mean_old[k] + sigma_ * Dvec_[k] * y_w[k];
 
-    // --- cumulation ---
-    const double ps_scale = std::sqrt(c_sigma_ * (2.0 - c_sigma_) * mu_eff_);
-    for (int k = 0; k < D; ++k) p_sigma_[k] = (1.0 - c_sigma_) * p_sigma_[k] + ps_scale * z_w[k];
+    // ---- evolution path ----
+    {
+        const double f = hs * std::sqrt(cc_ * (2.0 - cc_) * mu_eff_);
+        for (int c = 0; c < n_; ++c) pc_[c] = (1.0 - cc_) * pc_[c] + f * dx_[c];
+    }
 
-    double ps_norm2 = 0.0;
-    for (double v : p_sigma_) ps_norm2 += v*v;
-    ++t_;
-    const double hsig_thresh = (2.0 + 4.0/(D+1.0)) * (1.0 - std::pow(1.0 - c_sigma_, 2.0*t_));
-    const bool hsig = (ps_norm2 / D) < hsig_thresh;
-
-    const double pc_scale = hsig ? std::sqrt(c_c_ * (2.0 - c_c_) * mu_eff_) / sigma_ : 0.0;
-    Vec dmean(D);
-    for (int k = 0; k < D; ++k) dmean[k] = mean_[k] - mean_old[k];
-    for (int k = 0; k < D; ++k) p_c_[k] = (1.0 - c_c_) * p_c_[k] + pc_scale * dmean[k];
-
-    // --- step size ---
-    const double chiD = std::sqrt((double)D) * (1.0 - 1.0/(4.0*D) + 1.0/(21.0*D*D));
-    sigma_ *= std::exp((c_sigma_ / d_sigma_) * (std::sqrt(ps_norm2) / chiD - 1.0));
-
-    // --- v_j and D updates (see class-level comment: per-vector Theorem
-    // 3.6 update, independent across j; D-update averaged across the
-    // active vectors). Each vector j has its own rank-mu rate c_v_[j]
-    // (LM-MA-ES-style exponential spacing) and a PROPORTIONALLY scaled
-    // rank-1 rate c1_j = c1_ * (c_v_[j]/cmu_), so vector j's rank-1 and
-    // rank-mu contributions scale together consistently instead of being
-    // mixed in mismatched units. ---
-    Vec s_accum(D, 0.0);
-    int active_vectors = 0;
-    for (int j = 0; j < k_; ++j) {
-        double vn2 = 0.0; for (double vv : V_[j]) vn2 += vv*vv;
-        if (vn2 < 1e-12) continue; // degenerate vector, skip its contribution this step
-        ++active_vectors;
-
-        const double c1_j = c1_ * (c_v_[j] / cmu_);
-
-        Vec grad_s_sum(D, 0.0), grad_t_sum(D, 0.0);
+    // ---- update matrix U (n x r_u) [ref] ----
+    const double alpha = std::sqrt(std::fabs(1.0 - cmu_ - c1_ + c1_ * (1.0 - hs) * cc_ * (2.0 - cc_)));
+    std::vector<Vec> cols;   // each column has size n
+    cols.reserve(ka_ + mu_ + 1);
+    for (int j = 0; j < ka_; ++j) {
+        Vec col(n_);
+        const double f = std::sqrt(std::max(0.0, s_[j])) * alpha;
+        for (int c = 0; c < n_; ++c) col[c] = v_[j][c] * f;
+        cols.push_back(std::move(col));
+    }
+    if (cmu_ > 0.0) {
         for (int i = 0; i < mu_; ++i) {
-            const int idx = order[i];
-            Vec gs, gt;
-            naturalGradientOneVector(Y_[idx], V_[j], vn2, gs, gt);
-            for (int k = 0; k < D; ++k) {
-                grad_s_sum[k] += c_v_[j] * w_[i] * gs[k];
-                grad_t_sum[k] += c_v_[j] * w_[i] * gt[k];
+            Vec col(n_);
+            const double f = std::sqrt(cmu_) * std::sqrt(w_[i]);
+            for (int c = 0; c < n_; ++c) col[c] = f * Z_[order[i]][c] / d_[c];
+            cols.push_back(std::move(col));
+        }
+    }
+    if (c1_ > 0.0) {
+        Vec col(n_);
+        const double f = std::sqrt(c1_);
+        for (int c = 0; c < n_; ++c) col[c] = f * pc_[c] / d_[c];
+        cols.push_back(std::move(col));
+    }
+    const int ru = (int)cols.size();
+
+    // ---- projection onto rank k [ref: eigh of U^T U or U U^T] ----
+    if (ru > 0) {
+        Vec dd;
+        std::vector<double> E;   // eigenvectors (columns)
+        const bool small = (n_ > ru);
+        const int m = small ? ru : n_;
+        std::vector<double> M((size_t)m * m, 0.0);
+        if (small) {
+            for (int a = 0; a < ru; ++a)
+                for (int b = a; b < ru; ++b) {
+                    double s = 0.0;
+                    for (int c = 0; c < n_; ++c) s += cols[a][c] * cols[b][c];
+                    M[(size_t)a * m + b] = M[(size_t)b * m + a] = s;
+                }
+        } else {
+            for (int a = 0; a < n_; ++a)
+                for (int b = a; b < n_; ++b) {
+                    double s = 0.0;
+                    for (int q = 0; q < ru; ++q) s += cols[q][a] * cols[q][b];
+                    M[(size_t)a * m + b] = M[(size_t)b * m + a] = s;
+                }
+        }
+        symEig(M, m, dd, E);
+        std::vector<int> ie(m);
+        std::iota(ie.begin(), ie.end(), 0);
+        std::stable_sort(ie.begin(), ie.end(), [&](int a, int b) { return dd[a] > dd[b]; });
+
+        double gamma = 0.0;
+        if (ru > k_) {
+            double tail = 0.0;
+            for (int q = k_; q < m; ++q) tail += dd[ie[q]];
+            gamma = tail / (n - (double)k_);
+        }
+        int npos = 0;
+        for (int q = 0; q < m; ++q) if (dd[q] > 1e-300) ++npos;   // ref: dd >= 0 (strict here: avoids 1/sqrt(0))
+        ka_ = std::min(npos, k_);
+        for (int j = 0; j < ka_; ++j) {
+            const int q = ie[j];
+            s_[j] = (dd[q] - gamma) / (alpha * alpha + gamma);
+            Vec vj(n_, 0.0);
+            if (small) {
+                const double inv = 1.0 / std::sqrt(dd[q]);
+                for (int a = 0; a < ru; ++a) {
+                    const double e = E[(size_t)a * m + q];
+                    for (int c = 0; c < n_; ++c) vj[c] += cols[a][c] * e;
+                }
+                for (int c = 0; c < n_; ++c) vj[c] *= inv;
+            } else {
+                for (int c = 0; c < n_; ++c) vj[c] = E[(size_t)c * m + q];
             }
-        }
-
-        if (!hsig) {
-            Vec ycoord(D);
-            for (int k = 0; k < D; ++k) ycoord[k] = p_c_[k] / (sigma_ * Dvec_[k]);
-            Vec gs, gt;
-            naturalGradientOneVector(ycoord, V_[j], vn2, gs, gt);
-            for (int k = 0; k < D; ++k) {
-                grad_s_sum[k] += c1_j * gs[k];
-                grad_t_sum[k] += c1_j * gt[k];
-            }
-        }
-
-        for (int k = 0; k < D; ++k) V_[j][k] += grad_t_sum[k];
-        for (int k = 0; k < D; ++k) s_accum[k] += grad_s_sum[k];
-    }
-    if (active_vectors > 0) {
-        for (int k = 0; k < D; ++k) {
-            const double d_update = s_accum[k] / active_vectors;
-            // Multiplicative, sign-preserving update (D must stay strictly
-            // positive): exp() of the small additive natural-gradient step
-            // is a standard, numerically safe way to apply it.
-            Dvec_[k] *= std::exp(0.5 * d_update);
-            if (Dvec_[k] < 1e-12) Dvec_[k] = 1e-12;
+            v_[j] = std::move(vj);
         }
     }
 
-    // --- adaptive k: grow when the newest vector keeps showing a
-    // sustained, non-negligible norm (evidence of still-useful anisotropic
-    // signal); see class-level comment for the scope of this heuristic ---
-    if (k_cfg_ <= 0 && k_ < k_max_) {
-        double newest_norm2 = 0.0;
-        for (double vv : V_[k_ - 1]) newest_norm2 += vv*vv;
-        if (newest_norm2 > 1e-6) ++grow_streak_; else grow_streak_ = 0;
-        if (grow_streak_ >= grow_patience_) {
-            ++k_;
-            grow_streak_ = 0;
-            std::normal_distribution<double> N01small(0.0, 1.0);
-            for (int kk = 0; kk < D; ++kk) V_[k_ - 1][kk] = N01small(rng_) / std::sqrt((double)D);
-        }
+    // ---- diagonal [ref: d *= sqrt((alpha^2 + sum_cols U^2) / (1 + sum_j s_j v_j^2))] ----
+    for (int c = 0; c < n_; ++c) {
+        double num = alpha * alpha;
+        for (int q = 0; q < ru; ++q) num += cols[q][c] * cols[q][c];
+        double den = 1.0;
+        for (int j = 0; j < ka_; ++j) den += s_[j] * v_[j][c] * v_[j][c];
+        d_[c] *= std::sqrt(num / den);
+    }
+    {
+        const double e = std::exp(logDet() / n / 2.0);
+        for (int c = 0; c < n_; ++c) { d_[c] /= e; pc_[c] /= e; }
     }
 
-    // Optional in-run local search after a successful global-best improvement.
-    if (local_rate_ > 0.0 && !local_method_.empty()) {
+    // ---- online model selection of k [ref] ----
+    ++ki_;
+    const double e_s = std::log(sigma_) - l_s_;
+    const double l_s_c = e_s / (0.5 * std::min(1.0, (double)lambda_ / n) / 3.0);
+    l_s_ = std::log(sigma_);
+    Vec ld_new(n_), l_d_c(n_);
+    for (int c = 0; c < n_; ++c) {
+        double sv = 0.0;
+        for (int j = 0; j < k_; ++j) sv += s_[j] * v_[j][c] * v_[j][c];
+        ld_new[c] = 2.0 * std::log(d_[c]) + std::log(1.0 + sv);
+        l_d_c[c] = (ld_new[c] - l_d_[c]) / (cmu_ + c1_);
+    }
+    l_d_ = ld_new;
+    Vec l_l_c(n_);
+    for (int c = 0; c < n_; ++c) {
+        const double lc = std::log(1.0 + s_[c]);
+        l_l_c[c] = (lc - l_c_[c]) / (cmu_ + c1_);
+        l_c_[c] = lc;
+    }
+
+    bool k_inc = (ki_ > (2 * n_ - 1)) && (k_ < (n_ - 1)) && (std::fabs(l_s_c) < 0.1);
+    for (int j = 0; j < k_ && k_inc; ++j) if (!(1.0 + s_[j] > 30.0)) k_inc = false;
+    for (int c = 0; c < n_ && k_inc; ++c) if (!(std::fabs(l_d_c[c]) < 1.0)) k_inc = false;
+    std::vector<char> k_dec(k_, 0);
+    bool any_dec = false;
+    for (int j = 0; j < k_; ++j) {
+        k_dec[j] = (1.0 + s_[j] < 30.0) && (l_l_c[j] < 0.0);
+        any_dec = any_dec || k_dec[j];
+    }
+
+    if (k_inc) {
+        ka_ = k_;
+        const int new_k = std::min(std::max((int)std::ceil(k_ * 1.414), k_ + 1), n_ - 1);
+        for (int j = k_; j < new_k; ++j) v_.push_back(Vec(n_, 0.0));
+        k_ = new_k;
+        setLearningRates();
+        ki_ = 0;
+    } else if (ki_ > k_ * (2 * n_ - 1) && any_dec) {
+        std::vector<Vec> nv;
+        Vec ns(n_, 0.0);
+        int new_k = 0;
+        for (int j = 0; j < k_; ++j) {
+            if (!k_dec[j]) { nv.push_back(v_[j]); ns[new_k] = s_[j]; ++new_k; }
+        }
+        v_.swap(nv);
+        s_ = ns;
+        k_ = ka_ = new_k;
+        setLearningRates();
+    }
+    {
+        const double e = std::exp(logDet() / n / 2.0);
+        for (int c = 0; c < n_; ++c) { d_[c] /= e; pc_[c] /= e; }
+    }
+
+    // ---- optional in-run local search (framework feature) ----
+    if (local_rate_ > 0.0 && !local_method_.empty() && !best_x_.empty()) {
         std::uniform_real_distribution<double> U01(0.0, 1.0);
         if (U01(rng_) < local_rate_) {
             auto [xloc, floc] = localSearch(local_method_, best_x_);
@@ -365,14 +421,9 @@ void VkDCMAES::one_iteration() {
 }
 
 void VkDCMAES::end() {
-    if (!end_local_refine_)        return;
-    if (!prob_)                    return;
-    if (end_local_method_.empty()) return;
-
+    if (!end_local_refine_ || !prob_ || end_local_method_.empty() || best_x_.empty()) return;
     auto refinement = localSearch(end_local_method_, best_x_);
-    const auto& xloc = refinement.first;
-    double floc      = refinement.second;
-    if (floc < best_f_) { best_f_ = floc; best_x_ = xloc; }
+    if (refinement.second < best_f_) { best_f_ = refinement.second; best_x_ = refinement.first; }
     printBest();
 }
 

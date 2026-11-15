@@ -42,8 +42,13 @@ public:
     }
 
     void configure(const MethodConfig& mc) override {
-        int pop_override = mc.getInt("population", pop_);
-        if (pop_override > 0) pop_ = pop_override;
+        // population=0 (or unset): classic GA has no single canonical
+        // population size in the literature; N=100 is this codebase's
+        // general convention. Previously population=0 silently fell back
+        // to [global] population (default 100, so numerically the same,
+        // but now explicit/robust rather than accidental) -- fixed here.
+        int pop_override = mc.getInt("population", 0);
+        pop_ = (pop_override > 0) ? pop_override : 100;
         chromosome_count_ = pop_;
 
         max_generations_ = mc.getInt("max_generations", max_generations_);

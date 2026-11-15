@@ -14,12 +14,17 @@ void UDE3::configure(const MethodConfig& mc)
     // Comment translated from Greek.
     pop_cfg_ = mc.getInt("population", pop_cfg_);
     if (pop_cfg_ == 0) pop_cfg_ = -1;
+    // population=0 (or unset): internal method, no external published
+    // literature default; pop_init_'s own compiled default (100) is this
+    // codebase's general convention. Previously population=0 silently
+    // fell back to [global] population instead of this method's own
+    // default (numerically the same by coincidence here, but now
+    // explicit/robust rather than accidental) -- fixed here.
     if (pop_cfg_ > 0) {
         Optimizer::setPopulation(pop_cfg_);
         pop_init_ = pop_cfg_;
-    } else {
-        pop_init_ = population() > 0 ? population() : pop_init_;
     }
+    // else: pop_init_ keeps its own compiled default (see header).
 
     H_ = mc.getInt("H", H_);
     if (H_ <= 0) H_ = 10;
@@ -63,7 +68,7 @@ void UDE3::init()
     const int D = prob_->dimension();
 
     if (pop_init_ <= 0) {
-        pop_init_ = population() > 0 ? population() : 100;
+        pop_init_ = 100; // should not happen -- configure() always sets a sane pop_init_
     }
     setPopulation(pop_init_);
 

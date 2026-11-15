@@ -39,3 +39,6 @@
 
 # debug information files
 *.dwo
+build/
+optimsolution_gui_run/
+*.log

@@ -711,19 +711,11 @@ double CEC2022Composition6::evaluate_core(const Vec& x) {
 }
 
 void CEC2022Composition6::gradient_core(const Vec& x, Vec& g) {
-    const int D = dimension();
-    g.assign(D, 0.0);
-    if (static_cast<int>(x.size()) != D) return;
-
-    const double h = 1.0e-6;
-    Vec xp = x, xm = x;
-    for (int i = 0; i < D; ++i) {
-        xp[i] += h;
-        xm[i] -= h;
-        g[i] = (evaluate_core(xp) - evaluate_core(xm)) / (2.0 * h);
-        xp[i] = x[i];
-        xm[i] = x[i];
-    }
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

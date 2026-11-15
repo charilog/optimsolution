@@ -55,27 +55,11 @@ double FMSynth::evaluate_core(const Vec& x) {
 }
 
 void FMSynth::gradient_core(const Vec& x, Vec& g) {
-    g.assign(x.size(), 0.0);
-
-    const double f0 = evaluate_core(x);
-    Vec xt = x;
-
-    for (int i = 0; i < static_cast<int>(x.size()); ++i) {
-        // forward difference step inside bounds
-        double h = std::max(1e-6, std::abs(x[i]) * 1e-6);
-        if (x[i] + h > hi_[i])
-            h = std::min(h, hi_[i] - x[i]);
-        if (h <= 0.0) {
-            g[i] = 0.0;
-            continue;
-        }
-
-        xt[i] = x[i] + h;
-        const double fp = evaluate_core(xt);
-        xt[i] = x[i];
-
-        g[i] = (fp - f0) / h;
-    }
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

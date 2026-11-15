@@ -75,6 +75,7 @@ private:
 
     // Global stop: stop when that many islands have completed
     int         stop_after_islands_{-1}; // if <=0 => islands_
+    int         island_stop_mode_{-1};   // island_stop: -1 auto, 0 off, 1 on (see island_stop.h)
 
     // --- DE params ---
     double      F_{0.5};

@@ -145,13 +145,17 @@ Vec SIOA::make_spore_(const Vec& xi)
     std::uniform_real_distribution<double> U01(0.0, 1.0);
     auto Uni = [&](double a, double b) { return a + (b - a)*U01(rng_local_); };
 
+    // FIX (logic): "pzero" set the coordinate to exactly 0, i.e. a bias
+    // towards the ORIGIN of the coordinate system (excellent on unshifted test
+    // functions whose optimum is at 0, wrong everywhere else). It is now a
+    // uniform re-sampling of the coordinate inside [lb, ub].
     Vec s(D, 0.0);
     for (int j = 0; j < D; ++j)
     {
         const double u1 = Uni(-1.0,  1.0);
         const double u2 = Uni(-R_,   R_);
         s[j] = xi[j] + R_*u1*c1_ + c2_*(gbest_x_[j] - xi[j] + u2);
-        if (U01(rng_local_) < p_zero_) s[j] = 0.0;
+        if (U01(rng_local_) < p_zero_) s[j] = Uni(L[j], U[j]);
         if (s[j] < L[j]) s[j] = L[j];
         if (s[j] > U[j]) s[j] = U[j];
     }
@@ -163,9 +167,11 @@ void SIOA::init()
 {
     if (!prob_) return;
 
-    // Synchronizes the population as in DE.
-    const int globalN = this->population();
-    final_population_ = std::max(4, (pop_cfg_ > 0 ? pop_cfg_ : globalN));
+    // population=0 (or unset): internal method, no external published
+    // literature default; N=100 is this codebase's general convention.
+    // Previously population=0 silently fell back to [global] population -- fixed here.
+    final_population_ = std::max(4, (pop_cfg_ > 0 ? pop_cfg_ : 100));
+
     this->setPopulation(final_population_);
 
     const int D = prob_->dimension();
@@ -225,6 +231,12 @@ void SIOA::one_iteration()
 
         Vec trial = make_spore_(X_[i]);
         double ftrial = eval(trial);
+        // BUGFIX (lost best): an evaluated spore that does not germinate, loses
+        // the crowding test, or is the last one before the budget runs out
+        // used to be forgotten even when it was the best point ever evaluated.
+        // Track it in the reported incumbent (best_x_/best_f_ do not drive
+        // the search; gbest_x_ does and is left unchanged).
+        if (ftrial < best_f_) { best_f_ = ftrial; best_x_ = trial; }
 
         if (prob_->calls() >= max_evals_) break;
 

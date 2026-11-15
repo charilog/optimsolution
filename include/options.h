@@ -9,6 +9,15 @@ struct GeneralOptions {
     int    population   = 100;
     int    max_iters    = 1000;
     long long max_evals = 150000;
+    // If >0, [global] max_evals was written as "<N>xD" / "<N>XD" / "<N>*D"
+    // (case-insensitive; D = the current problem's dimension) rather than a
+    // plain number: N is stored here, and the actual per-run budget becomes
+    // N * dimension. Only consulted by the specific methods that opt in via
+    // their own setGeneralOptions() override (currently: jso, cmaes,
+    // lmcmaes, ea4eig, pso, gwo, sparq) -- every other method ignores this
+    // field entirely and keeps reading max_evals literally, exactly as
+    // before. 0 = not using per-dimension scaling (default).
+    long long max_evals_per_dim = 0;
     unsigned long long seed_base = 1337ULL;
     int    runs         = 30;
 

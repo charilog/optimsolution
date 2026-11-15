@@ -56,19 +56,11 @@ double GasCycle::evaluate_core(const Vec& x) {
 }
 
 void GasCycle::gradient_core(const Vec& x, Vec& g) {
-    const int D = dimension();
-    g.assign(D, 0.0);
-
-    const double eps = 1e-6;
-    const double f0  = evaluate_core(x);
-    Vec xt = x;
-
-    for (int i = 0; i < D; ++i) {
-        xt[i] = x[i] + eps;
-        const double f1 = evaluate_core(xt);
-        g[i] = (f1 - f0) / eps;
-        xt[i] = x[i];
-    }
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

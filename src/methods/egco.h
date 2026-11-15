@@ -15,8 +15,12 @@ public:
 
     // Method settings from [egco]
     void configure(const MethodConfig& mc) override {
-        int po = mc.getInt("population", pop_);
-        if (po > 0) pop_ = po;
+        // population=0 (or unset): internal method, no external published
+        // literature default; N=100 is this codebase's general convention.
+        // Previously population=0 silently fell back to [global]
+        // population (default 100) -- fixed here.
+        int po = mc.getInt("population", 0);
+        pop_ = (po > 0) ? po : 100;
 
         eel_frac_      = mc.getDbl("eel_frac", eel_frac_);
         if (eel_frac_ < 0.0) eel_frac_ = 0.0; if (eel_frac_ > 1.0) eel_frac_ = 1.0;

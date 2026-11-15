@@ -128,27 +128,11 @@ double BifunctionalCatalyst::evaluate_core(const Vec& x)
 
 void BifunctionalCatalyst::gradient_core(const Vec& x, Vec& g)
 {
-    g.assign(1, 0.0);
-
-    const double fx      = evaluate_core(x);
-    const double h_base  = 1e-6;
-    const double ui      = umax_;
-
-    // step inside bounds
-    double h = h_base;
-    if (x[0] + h > ui)
-        h = std::min(h, ui - x[0]);
-
-    if (x[0] + h <= x[0]) {
-        g[0] = 0.0;
-        return;
-    }
-
-    Vec xt = x;
-    xt[0] += h;
-    const double fph = evaluate_core(xt);
-
-    g[0] = (fph - fx) / h;
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

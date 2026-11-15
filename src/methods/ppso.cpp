@@ -1,4 +1,5 @@
 #include "ppso.h"
+#include "island_stop.h"
 
 #include <thread>
 #include <atomic>
@@ -50,6 +51,7 @@ void PPSO::configure(const MethodConfig& mc){
 
     // Stops when >= K islands have completed.
     stop_after_islands_ = mc.getInt("stop_after_islands", stop_after_islands_);
+    island_stop_mode_   = parseIslandStopMode(mc, island_stop_mode_);
 
     final_population_ = -1;
     hard_stop_now_    = false;
@@ -74,15 +76,21 @@ double PPSO::inertia_omega_(std::mt19937_64& rng) const {
 void PPSO::init(){
     if (!prob_) return;
 
-    // Final population: per-method or [global].
+    // population=0 (or unset): inherits this codebase's PSO convention
+    // (N=30; classic PSO has no single canonical swarm size, "typically
+    // 20-50"). Previously population=0 silently fell back to [global]
+    // population -- fixed here.
     const int global_pop = Optimizer::population();
     const int method_pop = (pop_cfg_ > 0 ? pop_cfg_ : -1);
-    final_population_    = std::max(4, (method_pop > 0 ? method_pop : global_pop));
+    final_population_    = std::max(4, (method_pop > 0 ? method_pop : 30));
+    (void)global_pop;
+
 
     // Updates the base for correct reporting.
     Optimizer::setPopulation(final_population_);
 
     islands_ = std::max(1, islands_);
+    islands_ = effectiveIslands(islands_, final_population_);   // >= 4 members per island
     // clamp stop_after_islands
     if (stop_after_islands_ <= 0) stop_after_islands_ = islands_;
     if (stop_after_islands_ > islands_) stop_after_islands_ = islands_;
@@ -138,14 +146,13 @@ void PPSO::init(){
             ensureBounds(S.X[i]);
             for (int j=0;j<D;++j) S.V[i][j] = Ur(S.rng) * vmax[j];
 
-            S.fX[i] = eval(S.X[i]);
+            // BUGFIX: no 'break' on budget exhaustion -- it left the remaining
+            // islands EMPTY and end()/migration crashed on them.
+            if (prob_->calls() < max_evals_) S.fX[i] = eval(S.X[i]);
             S.Pbest[i]  = S.X[i];
             S.fPbest[i] = S.fX[i];
             if (S.fX[i] < S.gbest_f){ S.gbest_f = S.fX[i]; S.gbest_x = S.X[i]; }
-
-            if (prob_->calls() >= max_evals_) break;
         }
-        if (prob_->calls() >= max_evals_) break;
     }
 
     // Global best
@@ -230,6 +237,7 @@ std::vector<int> PPSO::best_indices_(const Island& S, int N) const{
 }
 
 int PPSO::worst_index_(const Island& S) const{
+    if (S.fX.empty()) return -1;
     int w = 0; double fw = S.fX[0];
     for (int i=1;i<(int)S.fX.size(); ++i){
         if (S.fX[i] > fw){ fw = S.fX[i]; w = i; }
@@ -250,6 +258,7 @@ void PPSO::send_best_Np_(int src, const std::vector<int>& dst_ids){
         Island& B = isl_[dst];
         for (int bi : best_idx){
             int w = worst_index_(B);
+            if (w < 0) break;
             // Replaces the worst in B with a copy of the best from A.
             B.X[w]      = A.X[bi];
             B.V[w].assign(B.V[w].size(), 0.0); // reset vel
@@ -343,6 +352,7 @@ void PPSO::one_iteration(){
         snapshot.reserve(final_population_);
         for (const auto& S: isl_) snapshot.insert(snapshot.end(), S.fPbest.begin(), S.fPbest.end());
         updateStop(snapshot); // Same snapshot => the global stopper (e.g., bss) will terminate immediately.
+        stopReached_ = true;   // BUGFIX: with rule = maxevals nothing terminated it (spun until max_iters)
         return;
     }
 
@@ -374,10 +384,12 @@ void PPSO::one_iteration(){
         propagate_();
     }
 
-    // Per-island stopping: freezes those that completed.
+    // Per-island stopping: freezes those that completed (only when enabled,
+    // see island_stop.h).
     int done_now = 0;
+    const bool island_stop_on = islandStopEnabled(island_stop_mode_, topt_);
     for (int k=0;k<islands_; ++k){
-        if (!island_done_[k]) {
+        if (island_stop_on && !island_done_[k]) {
             if (stopping_hold_(isl_[k], isl_[k].gbest_f)) {
                 island_done_[k] = 1;
             }
@@ -400,6 +412,7 @@ void PPSO::one_iteration(){
     snapshot.reserve(final_population_);
     for (const auto& S: isl_) snapshot.insert(snapshot.end(), S.fPbest.begin(), S.fPbest.end());
     updateStop(snapshot);
+    if (hard_stop_now_) stopReached_ = true;   // BUGFIX: end the run when the island test fired
 }
 
 void PPSO::end(){

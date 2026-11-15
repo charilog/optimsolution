@@ -44,8 +44,12 @@ void ARQEigRL::configure(const MethodConfig& mc)
 {
     // population
     pop_init_ = mc.getInt("population", pop_init_);
+    // population=0 (or unset): internal method (this codebase's own
+    // ARQ/DE-family), no external published literature default;
+    // N=100 is this codebase's general convention. Previously
+    // population=0 silently fell back to [global] population -- fixed here.
     if (pop_init_ <= 0) {
-        pop_init_ = population();
+        pop_init_ = 100;
     }
     if (pop_init_ < 4) pop_init_ = 50;
     setPopulation(pop_init_);
@@ -127,7 +131,11 @@ void ARQEigRL::init()
     if (D_ <= 0) return;
 
     if (pop_init_ <= 0) {
-        pop_init_ = population();
+        // population=0 (or unset): internal method, no external
+        // published literature default; N=100 is this codebase's
+        // general convention. Previously population=0 silently fell
+        // back to [global] population -- fixed here.
+        pop_init_ = 100;
         if (pop_init_ < 4) pop_init_ = 50;
         setPopulation(pop_init_);
     }

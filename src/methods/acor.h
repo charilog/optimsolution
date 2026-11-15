@@ -17,6 +17,25 @@ public:
 	std::string methodShortName() const override { return "acor"; }
 	std::string methodFullName()  const override { return "Ant Colony Optimization for Continuous Domains"; }
 
+    // Opt-in to "[global] max_evals = <N>xD" (budget scales with the
+    // problem's dimension) -- see options.h. Every other method is
+    // unaffected by this override existing here.
+    //
+    // FIX (added <date of re-run>): ACOR previously had no override here,
+    // so it silently used the raw, unscaled max_evals literal (10000)
+    // regardless of problem dimension, while jso/ea4eig/lmcmaes/cmaes/
+    // sparq/sa/gwo/pso all received the intended 10000*D budget. At D=50
+    // this meant ACOR ran with roughly 1/50th the evaluation budget of
+    // every other scaled method -- an unintended asymmetry, not a
+    // property of the algorithm itself. This override brings ACOR in
+    // line with the other opted-in methods.
+    void setGeneralOptions(const GeneralOptions& g) override {
+        Optimizer::setGeneralOptions(g);
+        if (g.max_evals_per_dim > 0 && prob_) {
+            max_evals_ = g.max_evals_per_dim * (long long)prob_->dimension();
+        }
+    }
+
     // Enablement/method of final local refinement from [global]
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
         end_local_refine_ = enable;
@@ -25,8 +44,13 @@ public:
 
     // Load settings from the [acor] section
     void configure(const MethodConfig& mc) override {
-        int pop_override = mc.getInt("population", pop_);
-        if (pop_override > 0) pop_ = pop_override;
+        // population=0 (or unset): literature default. Socha & Dorigo's
+        // ACOR paper (2008) / its most common reference implementations
+        // (e.g. NEORL) use nants=40. Previously population=0 silently
+        // fell back to [global] population (default 100) instead of this
+        // documented convention -- fixed here.
+        int pop_override = mc.getInt("population", 0);
+        pop_ = (pop_override > 0) ? pop_override : 40;
 
         archive_ = mc.getInt("archive", archive_);
         if (archive_ < 2) archive_ = 2;

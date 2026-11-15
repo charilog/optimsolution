@@ -104,7 +104,35 @@ Config Config::load(const std::string &path, const std::string &methodName)
     // [global]
     c.g.population  = getInt("global", "population",  c.g.population);
     c.g.max_iters   = getInt("global", "max_iters",   c.g.max_iters);
+    // max_evals normally a plain integer (unchanged path, used literally by
+    // every method that doesn't opt into per-dimension scaling below).
     c.g.max_evals   = (long long)getInt("global", "max_evals", (int)c.g.max_evals);
+    // Additionally recognize "<N>xD" / "<N>XD" / "<N>*D" (case-insensitive,
+    // optional whitespace around the separator) as a request to scale the
+    // budget by the problem's dimension: N is captured into
+    // max_evals_per_dim, consulted only by the handful of methods that
+    // explicitly opt in (see options.h). This is purely additive -- a plain
+    // number here still leaves max_evals_per_dim at its default (0), so
+    // every other method's behavior is completely unchanged.
+    c.g.max_evals_per_dim = 0;
+    {
+        std::string raw = getStr("global", "max_evals", "");
+        std::string rawTrim = trim(raw);
+        // Strip a trailing 'd' or 'D', optionally preceded by 'x'/'X'/'*'
+        // and/or whitespace, e.g. "10000xD", "10000 x D", "10000*d", "10000D".
+        if (!rawTrim.empty() && (rawTrim.back() == 'd' || rawTrim.back() == 'D')) {
+            std::string body = rawTrim.substr(0, rawTrim.size() - 1);
+            body = rtrim(body);
+            if (!body.empty() && (body.back() == 'x' || body.back() == 'X' || body.back() == '*')) {
+                body.pop_back();
+                body = rtrim(body);
+            }
+            try {
+                long long n = std::stoll(body);
+                if (n > 0) c.g.max_evals_per_dim = n;
+            } catch (...) { /* not a recognizable "NxD" pattern; leave disabled */ }
+        }
+    }
     try { c.g.seed_base = (unsigned long long)std::stoull(getStr("global", "seed_base", std::to_string(c.g.seed_base))); } catch (...) {}
     c.g.runs        = getInt("global", "runs",        c.g.runs);
 

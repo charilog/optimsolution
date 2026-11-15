@@ -101,6 +101,9 @@ private:
     double pbest_end_ = 0.3;
 
     double mean_m_ = 1.5;
+    double np_init_mult_ = 23.0;   // N_init = np_init_mult_ * D (paper default)
+    double cauchy_scale_ = 0.1;    // scale of F ~ Cauchy(M_F, scale)
+    double normal_scale_ = 0.1;    // std of CR ~ N(M_CR, std)
     double p_init_f_ = 3.5;
     double p_final_f_ = 1.5;
     double p_init_cr_ = 1.0;

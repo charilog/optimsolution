@@ -24,7 +24,14 @@ bool GA::inBounds(const std::vector<double>& x) {
 double GA::deltaIter(double y) {
     std::uniform_real_distribution<double> U01(0.0, 1.0);
     double r = U01(rng_);
-    return y * (1.0 - std::pow(r, 1.0 - generation_ * 1.0 / max_generations_));
+    // BUGFIX: generation_/max_generations_ is not bounded (max_generations is
+    // only a decay horizon, not a stop criterion); past the horizon the
+    // exponent became negative, r^(negative) > 1 and the step CHANGED SIGN.
+    // The ratio is clamped to [0, 1] (step -> 0 at and after the horizon,
+    // as in Michalewicz's non-uniform mutation).
+    double ratio = (max_generations_ > 0) ? (double)generation_ / (double)max_generations_ : 1.0;
+    ratio = std::min(1.0, std::max(0.0, ratio));
+    return y * (1.0 - std::pow(r, 1.0 - ratio));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -342,10 +349,15 @@ void GA::mutatePhase() {
                 int    t     = Ubin(rng_);
                 double right = rr[j];
                 double left  = ll[j];
+                // BUGFIX: the second branch used '+', so BOTH branches moved
+                // x upwards (deltaIter >= 0) and the lower half of the range
+                // could never be reached by mutation (and the move often
+                // left the box and was undone). Michalewicz's non-uniform
+                // mutation: x + D(t, ub - x) or x - D(t, x - lb).
                 if (t == 0)
                     x[j] = x[j] + deltaIter(right - x[j]);
                 else
-                    x[j] = x[j] + deltaIter(x[j] - left);
+                    x[j] = x[j] - deltaIter(x[j] - left);
             }
 
             if (!inBounds(x))

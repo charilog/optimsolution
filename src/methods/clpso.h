@@ -31,6 +31,16 @@ public:
     std::string methodShortName() const override { return "clpso"; }
     std::string methodFullName()  const override { return "Comprehensive Learning Particle Swarm Optimization"; }
 
+    // BUGFIX: CLPSO had no configure(), so every key of [clpso] in
+    // optimsolution.cfg was ignored, and no setEndLocalFromGlobal(), so the
+    // [global] end_local_refine setting never reached end_local_refine_.
+    void configure(const MethodConfig& mc) override;
+    void setEndLocalFromGlobal(bool enable, const std::string& method) override {
+        Optimizer::setEndLocalFromGlobal(enable, method);
+        end_local_refine_ = finalLocalEnabled();
+        end_local_method_ = finalLocalMethod();
+    }
+
     void init() override;
     void one_iteration() override;
     void end() override;
@@ -75,6 +85,8 @@ private:
 
     double vmax_frac_{0.2}; // Vmax = (ub-lb) * vmax_frac
     bool   clamp_pos_{true};
+    int    pop_cfg_{0};      // [clpso] population (0 = paper default)
+    double gbest_coef_{0.0}; // optional, non-CLPSO global-best term (0 = pure CLPSO)
 
     // In-run local (only after pbest improvement)
     std::string local_method_{"lbfgs"};

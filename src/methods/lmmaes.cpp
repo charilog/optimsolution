@@ -1,11 +1,18 @@
 #include "lmmaes.h"
 #include <numeric>
+#include <algorithm>
 #include <limits>
 
 namespace optimsolution {
 
 void LMMAES::configure(const MethodConfig& mc) {
     lambda_cfg_ = mc.getInt("lambda", lambda_cfg_);
+    // Also honor the generic "population" key used by the other methods in
+    // optisolution.cfg. population=0 (or unset) leaves lambda_cfg_ untouched
+    // so that init() falls back to the literature-recommended default,
+    // lambda = 4 + floor(3*ln(D)); a positive value overrides it.
+    const int pop_override = mc.getInt("population", 0);
+    if (pop_override > 0) lambda_cfg_ = pop_override;
     m_dirs_cfg_ = mc.getInt("m_dirs", m_dirs_cfg_);
     sigma0_     = mc.getDbl("sigma0", sigma0_);
 
@@ -70,15 +77,27 @@ void LMMAES::init() {
     // & Beyer, arXiv:1705.06693, Algorithm 1, LM-MA-ES branches) ---
     m_dirs_ = (m_dirs_cfg_ > 0) ? m_dirs_cfg_
                                  : std::max(4, 4 + (int)std::floor(3.0 * std::log(n)));
-    c_sigma_ = 2.0 * (double)lambda_ / n;
+    // BUGFIX (small dimensions): LM-MA-ES's c_sigma = 2*lambda/n (Loshchilov,
+    // Glasmachers & Beyer 2019) is a LARGE-scale setting (n >> lambda). For
+    // D = 10, lambda = 10 it gives c_sigma = 2: sqrt(c(2-c)) = 0, p_sigma stays
+    // 0 and sigma shrinks by e^-1 every generation (premature convergence --
+    // sphere-10D ended at f ~ 800); for D < 10 it is > 2 and the square root
+    // is NaN. Outside its valid range (2*lambda/n >= 1) the MA-ES value
+    // (Beyer & Sendhoff 2017, the full-matrix parent of LM-MA-ES)
+    // c_sigma = (mu_eff + 2) / (n + mu_eff + 5) is used; for 2*lambda/n < 1 the
+    // paper's setting is unchanged. c_c,j / c_d,j are likewise kept <= 1.
+    {
+        const double lm = 2.0 * (double)lambda_ / n;
+        c_sigma_ = (lm < 1.0) ? lm : (mu_eff_ + 2.0) / (n + mu_eff_ + 5.0);
+    }
 
     c_d_.assign(m_dirs_, 0.0);
     c_c_.assign(m_dirs_, 0.0);
     for (int j = 0; j < m_dirs_; ++j) {
         // 1-indexed i = j+1 in the paper's c_{d,i}=1/(1.5^{i-1} n),
         // c_{c,i}=lambda/(4^{i-1} n) -- (i-1) becomes exactly j here.
-        c_d_[j] = 1.0 / (std::pow(1.5, (double)j) * n);
-        c_c_[j] = (double)lambda_ / (std::pow(4.0, (double)j) * n);
+        c_d_[j] = std::min(1.0, 1.0 / (std::pow(1.5, (double)j) * n));
+        c_c_[j] = std::min(1.0, (double)lambda_ / (std::pow(4.0, (double)j) * n));
     }
 
     // --- initial state ---
@@ -150,10 +169,29 @@ void LMMAES::one_iteration() {
 
         Vec x(D);
         for (int k = 0; k < D; ++k) x[k] = y_[k] + sigma_ * d[k];
-        ensureBounds(x); // clamp only the EVALUATED point; z_i/d_i (used for
-                          // the internal path/vector updates below) stay
-                          // unclamped, the standard convention for
-                          // box-constrained CMA-ES-family methods.
+        ensureBounds(x);
+        // BUGFIX (box constraints): only the evaluated point used to be
+        // clamped while the update used the unclamped d_i / z_i. The mean then
+        // drifted outside the box, where all clamped samples look alike, and
+        // the run stalled (shifted sphere-10D: f ~ 3e2..6e2). Lamarckian
+        // repair: d_i = (x - y) / sigma for the point actually evaluated, and
+        // z_i = T^{-1} d_i, inverting the transform d = T z exactly; each
+        // factor A_j = (1-c)I + c m m^T has the Sherman-Morrison inverse
+        // A_j^{-1} = [I - c/(1-c+c|m|^2) m m^T] / (1-c), applied in reverse.
+        bool clipped = false;
+        for (int k = 0; k < D; ++k) if (x[k] != y_[k] + sigma_ * d[k]) { clipped = true; break; }
+        if (clipped && sigma_ > 0.0) {
+            for (int k = 0; k < D; ++k) d[k] = (x[k] - y_[k]) / sigma_;
+            z = d;
+            for (int j = active - 1; j >= 0; --j) {
+                const double cd = c_d_[j];
+                if (cd >= 1.0) continue;   // not invertible (cannot happen: c_d <= 1/n)
+                double mm = 0.0, md = 0.0;
+                for (int k = 0; k < D; ++k) { mm += m_[j][k] * m_[j][k]; md += m_[j][k] * z[k]; }
+                const double beta = cd / (1.0 - cd + cd * mm);
+                for (int k = 0; k < D; ++k) z[k] = (z[k] - beta * md * m_[j][k]) / (1.0 - cd);
+            }
+        }
         F_[i] = safeEval(x);
     }
 

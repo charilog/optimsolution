@@ -17,6 +17,16 @@ public:
     std::string methodShortName() const override { return "jso"; }
     std::string methodFullName()  const override { return "Single Objective Real-Parameter Optimization"; }
 
+    // Opt-in to "[global] max_evals = <N>xD" (budget scales with the
+    // problem's dimension) -- see options.h. Every other method is
+    // unaffected by this override existing here.
+    void setGeneralOptions(const GeneralOptions& g) override {
+        Optimizer::setGeneralOptions(g);
+        if (g.max_evals_per_dim > 0 && prob_) {
+            max_evals_ = g.max_evals_per_dim * (long long)prob_->dimension();
+        }
+    }
+
     void configure(const MethodConfig& mc) override;
     void init() override;
     void one_iteration() override;
@@ -41,11 +51,14 @@ private:
     int mem_idx_{0};
 
     // p-best range.
-    double pmin_{0.05};
+    // jSO (Brest et al. 2017): p decreases linearly from pmax = 0.25 to
+    // pmin = pmax/2 = 0.125 (was 0.05); archive size = NP, i.e. arc_rate = 1.0
+    // (was 1.4, the L-SHADE code value). Same values as the reference code.
+    double pmin_{0.125};
     double pmax_{0.25};
 
     // Archive settings.
-    double arc_rate_{1.4};
+    double arc_rate_{1.0};
 
     // Parameters for sampling F/CR.
     double cauchy_scale_F_{0.1};

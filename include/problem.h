@@ -1,7 +1,10 @@
 #pragma once
 #include <vector>
+#include <cmath>
 #include <limits>
 #include <string>
+#include <utility>
+#include <algorithm>
 
 namespace optimsolution {
 
@@ -24,7 +27,16 @@ public:
     virtual const Vec& lb() const { return lb_; }
     virtual const Vec& ub() const { return ub_; }
 
+    // BUGFIX (data race): several methods (ppso, pde, pga, psioa) call
+    // evaluate()/gradient() from inside "#pragma omp parallel for". The plain
+    // "++calls_" was a data race: increments were lost, so the evaluation
+    // budget check (calls() >= max_evals) and every reported evaluation
+    // count were wrong (and different from run to run). The increments are
+    // now atomic; without OpenMP the pragma is ignored.
     double evaluate(const Vec& x) {
+#ifdef _OPENMP
+#pragma omp atomic
+#endif
         ++calls_;
         return evaluate_core(x);
     }
@@ -42,6 +54,9 @@ public:
     virtual int numObjectives() const { return 1; }
 
     Vec evaluateMulti(const Vec& x) {
+#ifdef _OPENMP
+#pragma omp atomic
+#endif
         ++multi_calls_;
         return evaluateMultiCore(x);
     }
@@ -51,14 +66,24 @@ public:
     long long multiCalls() const { return multi_calls_; }
 
     Vec gradient(const Vec& x) {
+#ifdef _OPENMP
+#pragma omp atomic
+#endif
         ++grad_calls_;
         Vec g(dimension(), 0.0);
         gradient_core(x, g);
         return g;
     }
+    // BUGFIX: the default used to return an all-zero gradient. Every problem
+    // without its own gradient_core() therefore made the gradient-based local
+    // searches (gd / lbfgs / bfgs -- including the [global] end_local_method
+    // = lbfgs refinement used by every method) stop immediately without doing
+    // anything. The default is now a central finite-difference gradient
+    // (one-sided at the box bounds), same convention as the problems that
+    // already implement it themselves (evaluate_core(): gradient work is
+    // reported through gradCalls(), not calls()).
     virtual void gradient_core(const Vec& x, Vec& g) {
-        (void)x;
-        g.assign(dimension(), 0.0);
+        finiteDifferenceGradient(x, g);
     }
 
     long long calls() const      { return calls_; }
@@ -125,7 +150,74 @@ public:
         return (ub_.empty() ? 0.0 : ub_[0]);
     }
 
+    // ---------------- Warm-start bounds override (additive) ----------------
+    // Used by Mode 8 (--portfolio, src/mode_portfolio.cpp) to bias a fresh
+    // segment's own Initializer toward the current incumbent without
+    // touching any individual method's init() code: every existing sampler
+    // in Initializer already draws from lb()/ub(), so temporarily narrowing
+    // those is enough to "warm start" any of the 74 registered methods
+    // uniformly. Nestable via an internal stack; always paired push/pop.
+    // Never changes evaluate_core()/gradient_core() themselves -- only the
+    // box the initializer sees -- so a method that ends up wandering outside
+    // the shrunk box mid-segment (perfectly normal; most methods clamp to
+    // whatever lb()/ub() they read at init() time and never re-read it) is
+    // not penalized in any way.
+    void pushShrunkBounds(const Vec& center, double radiusFrac) {
+        boundsStack_.push_back({lb_, ub_});
+        const Vec& baseLo = boundsStack_.back().first;
+        const Vec& baseHi = boundsStack_.back().second;
+        Vec newLo(dim_), newHi(dim_);
+        double rf = radiusFrac;
+        if (rf <= 0.0) rf = 1e-6;
+        if (rf > 1.0)  rf = 1.0;
+        for (int j = 0; j < dim_; ++j) {
+            double half = 0.5 * rf * (baseHi[j] - baseLo[j]);
+            double c = (j < (int)center.size()) ? center[j] : 0.5 * (baseLo[j] + baseHi[j]);
+            double lo = c - half, hi = c + half;
+            if (lo < baseLo[j]) lo = baseLo[j];
+            if (hi > baseHi[j]) hi = baseHi[j];
+            if (lo > hi) std::swap(lo, hi);
+            newLo[j] = lo; newHi[j] = hi;
+        }
+        lb_ = newLo; ub_ = newHi;
+    }
+    void popBounds() {
+        if (boundsStack_.empty()) return;
+        lb_ = boundsStack_.back().first;
+        ub_ = boundsStack_.back().second;
+        boundsStack_.pop_back();
+    }
+
 protected:
+    // Central finite differences with a relative step h = 6e-6*max(1,|x_j|)
+    // (~cbrt(machine eps)); forward/backward difference when x_j +- h would
+    // leave [lb_j, ub_j].
+    void finiteDifferenceGradient(const Vec& x, Vec& g) {
+        const int D = dimension();
+        g.assign(D, 0.0);
+        Vec xt = x;
+        for (int j = 0; j < D && j < (int)x.size(); ++j) {
+            const double xj = x[j];
+            const double h  = 6.0e-6 * std::max(1.0, std::fabs(xj));
+            const bool hasLo = j < (int)lb_.size(), hasHi = j < (int)ub_.size();
+            const bool canUp   = !hasHi || xj + h <= ub_[j];
+            const bool canDown = !hasLo || xj - h >= lb_[j];
+            if (canUp && canDown) {
+                xt[j] = xj + h; const double fp = evaluate_core(xt);
+                xt[j] = xj - h; const double fm = evaluate_core(xt);
+                g[j] = (fp - fm) / (2.0 * h);
+            } else if (canUp) {
+                const double f0 = evaluate_core(x);
+                xt[j] = xj + h; g[j] = (evaluate_core(xt) - f0) / h;
+            } else if (canDown) {
+                const double f0 = evaluate_core(x);
+                xt[j] = xj - h; g[j] = (f0 - evaluate_core(xt)) / h;
+            }
+            if (!std::isfinite(g[j])) g[j] = 0.0;
+            xt[j] = xj;
+        }
+    }
+
     void setBounds(double lo, double hi) {
         lb_.assign(dim_, lo);
         ub_.assign(dim_, hi);
@@ -137,6 +229,7 @@ protected:
 
     int  dim_{0};
     Vec  lb_, ub_;
+    std::vector<std::pair<Vec,Vec>> boundsStack_;  // see pushShrunkBounds()/popBounds()
     long long calls_{0};
     long long grad_calls_{0};
     long long multi_calls_{0};

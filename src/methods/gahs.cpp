@@ -19,7 +19,11 @@ bool GAHS::inBounds(const Vec& x) {
 double GAHS::deltaIter(double y) {
     std::uniform_real_distribution<double> U01(0.0, 1.0);
     double r = U01(rng_);
-    return y * (1.0 - std::pow(r, 1.0 - generation_ * 1.0 / max_generations_));
+    // BUGFIX: ratio clamped to [0,1]; past the decay horizon the exponent
+    // became negative and the step changed sign (same fix as ga.cpp).
+    double ratio = (max_generations_ > 0) ? (double)generation_ / (double)max_generations_ : 1.0;
+    ratio = std::min(1.0, std::max(0.0, ratio));
+    return y * (1.0 - std::pow(r, 1.0 - ratio));
 }
 
 void GAHS::init() {
@@ -265,7 +269,8 @@ void GAHS::mutatePhase() {
                     if (t == 0)
                         x[(size_t)j] = x[(size_t)j] + deltaIter(right - x[(size_t)j]);
                     else
-                        x[(size_t)j] = x[(size_t)j] + deltaIter(x[(size_t)j] - left);
+                        // BUGFIX: was '+' (both branches moved x upwards); Michalewicz: x - D(t, x - lb)
+                        x[(size_t)j] = x[(size_t)j] - deltaIter(x[(size_t)j] - left);
                 }
 
                 if (!inBounds(x)) x[(size_t)j] = oldValue;

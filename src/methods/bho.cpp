@@ -8,8 +8,12 @@ namespace optimsolution {
 void BHO::configure(const MethodConfig& mc)
 {
     // population override (as in GA)
-    int pop_override = mc.getInt("population", pop_);
-    if (pop_override > 3) pop_ = pop_override;
+    // population=0 (or unset): internal method, no external published
+    // literature default; N=100 is this codebase's general convention.
+    // Previously population=0 silently fell back to [global] population
+    // (default 100) -- fixed here.
+    int pop_override = mc.getInt("population", 0);
+    pop_ = (pop_override > 3) ? pop_override : 100;
 
     // native keys
     heal_prob           = mc.getDbl("heal_prob",           heal_prob);
@@ -98,6 +102,7 @@ void BHO::seed_uniform()
 
     FX_.assign(N_, std::numeric_limits<double>::infinity());
     for (int i = 0; i < N_; ++i) {
+        if (prob_->calls() >= max_evals_) break;   // BUGFIX: respect the budget
         FX_[i] = eval_safe(X_[i]);
     }
 }
@@ -105,6 +110,7 @@ void BHO::seed_uniform()
 void BHO::ensure_finite_best()
 {
     if (std::isfinite(best_f_)) return;
+    if (prob_->calls() >= max_evals_ && !best_x_.empty()) return;
     Vec mid;
     seed_midpoint(mid);
     const double v = eval_safe(mid);
@@ -114,10 +120,16 @@ void BHO::ensure_finite_best()
 
 void BHO::elite_gaussian_kick()
 {
-    for (int j = 0; j < D_; ++j) best_x_[j] += elite_kick_sigma * N01_(rng_);
-    best_x_ = clamp_to_bounds(best_x_);
-    const double fv = eval_safe(best_x_);
-    if (fv < best_f_) best_f_ = fv;
+    // BUGFIX: the kick used to perturb best_x_ IN PLACE and only update
+    // best_f_ on improvement -- when the kicked point was worse, best_x_ was
+    // left at the perturbed point while best_f_ kept the old value, so the
+    // reported (best_x, best_f) pair was inconsistent (f(best_x) != best_f).
+    if (prob_->calls() >= max_evals_) return;
+    Vec y = best_x_;
+    for (int j = 0; j < D_; ++j) y[j] += elite_kick_sigma * N01_(rng_);
+    y = clamp_to_bounds(y);
+    const double fv = eval_safe(y);
+    if (fv < best_f_) { best_f_ = fv; best_x_ = std::move(y); }
 }
 
 void BHO::soft_kick_population()
@@ -223,7 +235,11 @@ void BHO::one_iteration()
         ++sinceBest_;
     }
 
-    double tfrac = (max_iters_ > 0) ? std::min(1.0, double(iters_) / double(max_iters_)) : 0.0;
+    // BUGFIX: progress used to be iters_/max_iters_, but max_iters is only a
+    // safety cap (5,000,000 in the default cfg) while the real budget is
+    // max_evals, so the wound strength never decayed. Use whichever budget
+    // is closer to being exhausted.
+    const double tfrac = progressFraction();
     double wound = std::max(0.05 * wound_strength_init, wound_strength_init * (1.0 - tfrac));
 
     std::uniform_real_distribution<double> U01(0.0,1.0);

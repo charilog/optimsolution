@@ -105,6 +105,14 @@ public:
         neighbor_k_ = mc.getInt("neighbor_k", neighbor_k_);
         neighbor_k_ = parse_int(mc.getStr("neighbor_k", std::to_string(neighbor_k_)), neighbor_k_);
         greedy_ = parse_bool(mc.getStr("greedy", std::to_string(greedy_ ? 1 : 0)), greedy_);
+        {
+            std::string md = mc.getStr("model", "");
+            for (auto& ch : md) ch = (char)std::tolower((unsigned char)ch);
+            while (!md.empty() && std::isspace((unsigned char)md.back())) md.pop_back();
+            while (!md.empty() && std::isspace((unsigned char)md.front())) md.erase(md.begin());
+            if (md == "legacy") paper_model_ = false;
+            else if (md == "paper" || md == "gandomi") paper_model_ = true;
+        }
 
         if (!std::isfinite(nmax_)  || nmax_  <= 0.0) nmax_  = 0.01;
         if (!std::isfinite(vf_)    || vf_    <= 0.0) vf_    = 0.02;
@@ -154,6 +162,7 @@ private:
     void ensureBounds(Vec& v);
     double meanRange() const;
     Vec    unitDir(const Vec& a, const Vec& b) const;
+    void   paperIteration();
 
     inline double eval(const Vec& v){
         double f = prob_->evaluate(v);
@@ -166,6 +175,8 @@ private:
     std::vector<double> FX_;
     std::vector<Vec>    Nprev_;
     std::vector<Vec>    Fprev_;
+    std::vector<Vec>    P_;      // personal best positions (paper model)
+    std::vector<double> FP_;
 
     // params
     double nmax_{0.01};
@@ -175,9 +186,10 @@ private:
     double wn_{0.9};
     double wf_{0.8};
     double c_best_{2.0};
-    double c_food_{1.0};
+    double c_food_{2.0};
     int    neighbor_k_{5};
     bool   greedy_{true};
+    bool   paper_model_{true};   // model = paper (Gandomi & Alavi 2012) | legacy
 
     std::string local_method_ = "lbfgs";
     double      local_rate_   = 0.0;

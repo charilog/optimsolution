@@ -221,15 +221,16 @@ double CEC2022NoncontinuousRastrigin::evaluate_core(const Vec& x)
     const int D = dimension();
     const double scale = 5.12 / 100.0;
 
-    Vec x_nc(D, 0.0);
-    for (int i = 0; i < D; ++i) {
-        const double dx = x[i] - shift_[i];
-        if (std::fabs(dx) > 0.5) {
-            x_nc[i] = shift_[i] + std::floor(2.0 * dx + 0.5) / 2.0;
-        } else {
-            x_nc[i] = x[i];
-        }
-    }
+    // FIX (official-code fidelity): in the official cec22_test_func.cpp,
+    // step_rastrigin_func() applies the rounding step to the global buffer y
+    // and then calls sr_func(x, z, ...), which recomputes y = x - o from the
+    // ORIGINAL x and overwrites it -- so the step never takes effect and the
+    // official F4 is the plain shifted & rotated Rastrigin (scale 5.12/100).
+    // All published CEC 2022 results use that code; the same official
+    // behaviour is already reproduced by this codebase's CEC 2017 F8
+    // (see cec2017_f8.cpp). The previous version applied the step and
+    // disagreed with the official code wherever |x_i - o_i| > 0.5.
+    const Vec& x_nc = x;
 
     Vec z(D, 0.0);
     for (int i = 0; i < D; ++i) {
@@ -251,20 +252,11 @@ double CEC2022NoncontinuousRastrigin::evaluate_core(const Vec& x)
 
 void CEC2022NoncontinuousRastrigin::gradient_core(const Vec& x, Vec& g)
 {
-    const int D = dimension();
-    g.assign(D, 0.0);
-
-    // The benchmark is noncontinuous, so an exact gradient is not defined on the step boundaries.
-    // A central finite-difference approximation is provided for compatibility with the Problem API.
-    const double h = 1e-6;
-    Vec xp = x, xm = x;
-    for (int i = 0; i < D; ++i) {
-        xp[i] = x[i] + h;
-        xm[i] = x[i] - h;
-        g[i] = (evaluate_core(xp) - evaluate_core(xm)) / (2.0 * h);
-        xp[i] = x[i];
-        xm[i] = x[i];
-    }
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

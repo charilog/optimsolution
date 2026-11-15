@@ -1,4 +1,5 @@
 #include "pde.h"
+#include "island_stop.h"
 
 #include <thread>
 #include <atomic>
@@ -47,6 +48,7 @@ void PDE::configure(const MethodConfig& mc){
 
     // Global stop by number of islands
     stop_after_islands_ = mc.getInt("stop_after_islands", stop_after_islands_);
+    island_stop_mode_   = parseIslandStopMode(mc, island_stop_mode_);
 
     // DE params
     F_        = mc.getDbl("F", F_);
@@ -106,15 +108,21 @@ double PDE::F_tuned_(std::mt19937_64& rng) const {
 void PDE::init(){
     if (!prob_) return;
 
-    // Final population
+    // population=0 (or unset): inherits the classic DE convention (Storn's
+    // rule of thumb, NP=10*D) since this is a parallel DE variant.
+    // Previously population=0 silently fell back to [global] population
+    // (default 100, dimension-independent) -- fixed here.
     const int global_pop = Optimizer::population();
     const int method_pop = (pop_cfg_ > 0 ? pop_cfg_ : -1);
-    final_population_    = std::max(4, (method_pop > 0 ? method_pop : global_pop));
+    final_population_    = std::max(4, (method_pop > 0 ? method_pop : 10 * prob_->dimension()));
+    (void)global_pop;
+
 
     // update the base for correct reporting
     Optimizer::setPopulation(final_population_);
 
     islands_ = std::max(1, islands_);
+    islands_ = effectiveIslands(islands_, final_population_);   // >= 4 members per island
     if (stop_after_islands_ <= 0) stop_after_islands_ = islands_;
     if (stop_after_islands_ > islands_) stop_after_islands_ = islands_;
 
@@ -159,12 +167,15 @@ void PDE::init(){
                 }
             }
             ensureBounds(S.X[i]);
-            S.fX[i] = eval(S.X[i]);
-            if (S.fX[i] < S.gbest_f){ S.gbest_f = S.fX[i]; S.gbest_x = S.X[i]; }
-
-            if (prob_->calls() >= max_evals_) break;
+            // BUGFIX: when the budget ran out here the loops used to 'break',
+            // leaving the remaining islands EMPTY (end()/migration then read
+            // fX[0] of an empty island -> crash). Every island is now fully
+            // allocated; members that cannot be evaluated keep f = +inf.
+            if (prob_->calls() < max_evals_) {
+                S.fX[i] = eval(S.X[i]);
+                if (S.fX[i] < S.gbest_f){ S.gbest_f = S.fX[i]; S.gbest_x = S.X[i]; }
+            }
         }
-        if (prob_->calls() >= max_evals_) break;
 
         last_improve_iter_[k] = 0; // from iter 0
     }
@@ -311,6 +322,7 @@ std::vector<int> PDE::best_indices_(const Island& S, int N) const{
 }
 
 int PDE::worst_index_(const Island& S) const{
+    if (S.fX.empty()) return -1;
     int w = 0; double fw = S.fX[0];
     for (int i=1;i<(int)S.fX.size(); ++i){
         if (S.fX[i] > fw){ fw = S.fX[i]; w = i; }
@@ -331,6 +343,7 @@ void PDE::send_best_Np_(int src, const std::vector<int>& dst_ids){
         Island& B = isl_[dst];
         for (int bi : best_idx){
             int w = worst_index_(B);
+            if (w < 0) break;
             B.X[w]  = A.X[bi];
             B.fX[w] = A.fX[bi];
             if (B.fX[w] < B.gbest_f){ B.gbest_f = B.fX[w]; B.gbest_x = B.X[w]; }
@@ -418,6 +431,7 @@ void PDE::one_iteration(){
         snapshot.reserve(final_population_);
         for (const auto& S: isl_) snapshot.insert(snapshot.end(), S.fX.begin(), S.fX.end());
         updateStop(snapshot);
+        stopReached_ = true;   // BUGFIX: actually end the run (it used to spin until max_iters)
         return;
     }
 
@@ -451,10 +465,12 @@ void PDE::one_iteration(){
         propagate_();
     }
 
-    // per-island stopping (combination of 3 criteria)
+    // per-island stopping (combination of 3 criteria); only when enabled,
+    // see island_stop.h
     int done_now = 0;
+    const bool island_stop_on = islandStopEnabled(island_stop_mode_, topt_);
     for (int k=0;k<islands_; ++k){
-        if (!island_done_[k]){
+        if (island_stop_on && !island_done_[k]){
             bool done = false;
 
             // 1) initial stagnation criterion (eps_stop/NM) on the island gbest
@@ -495,6 +511,7 @@ void PDE::one_iteration(){
     snapshot.reserve(final_population_);
     for (const auto& S: isl_) snapshot.insert(snapshot.end(), S.fX.begin(), S.fX.end());
     updateStop(snapshot);
+    if (hard_stop_now_) stopReached_ = true;   // BUGFIX: end the run when the island test fired
 }
 
 // ------------------ end ------------------

@@ -5,18 +5,27 @@
 #include <QProcess>
 #include <QVector>
 #include <QMap>
+#include <QSet>
 #include <QFutureWatcher>
 #include <QElapsedTimer>
 #include <QDateTime>
 #include <QThread>
+#include <QPointer>
+#include <QString>
+#include <functional>
 #include <memory>
 #include <vector>
+#include <utility>
 #include <limits>
+
+#include "uscore.h"
+#include "ModeAwareTabWidget.h"
 
 QT_BEGIN_NAMESPACE
 class QComboBox;
 class QListWidget;
 class QSpinBox;
+class QDoubleSpinBox;
 class QFormLayout;
 class QTableWidget;
 class QPushButton;
@@ -27,6 +36,11 @@ class QRadioButton;
 class QProgressBar;
 class QSplitter;
 class QGroupBox;
+class QSlider;
+class QLineEdit;
+class QFile;
+class QVBoxLayout;
+class QEvent;
 QT_END_NAMESPACE
 
 class QTimer;
@@ -57,6 +71,7 @@ private:
     QString methodShort;
     QString problemShort;
     int problemDim = 0;
+    bool isMethodParamSensitivity = false; // true for "Sensitivity analysis of method parameters" run mode
     QWidget* page = nullptr;
     QTextEdit* log = nullptr;
     QLabel* convergenceInfo = nullptr;
@@ -103,10 +118,67 @@ private:
     QTextEdit* sensitivityLog = nullptr;
     QString sensitivityCsvPath;
     bool sensLoaded = false;
+    QPushButton* generateSensReportBtn = nullptr;
+
+    // Landscape (2D contour + best-so-far trajectory animation)
+    QLabel* landscapeInfo = nullptr;
+    QWidget* landscapePlot = nullptr;      // LandscapeWidget
+    QPushButton* landscapePlayBtn = nullptr;
+    QSlider* landscapeSlider = nullptr;
+    QComboBox* landscapeThemeCombo = nullptr;
+    QPushButton* exportLandscapePngBtn = nullptr;
+    bool landscapeLoaded = false;
+    QString landscapeLoadedCsvPath;
+    bool landscapeGridReady = false;
+
+    // Multi-objective (Pareto front) results -- reuses this same struct (and
+    // the outputRuns_/outputTabs_ index-paired bookkeeping already in place
+    // for tab closing) instead of a parallel data structure, so closing a
+    // tab keeps behaving correctly regardless of run mode.
+    bool isMultiObjective = false;
+    QWidget* moParetoPlot = nullptr;       // ParetoFrontWidget
+    QTableWidget* moParetoTable = nullptr;
+    QLabel* moInfoLbl = nullptr;
+    QPushButton* moExportPngBtn = nullptr;
+    QPushButton* moExportXlsxBtn = nullptr;
+
+    // Portfolio (Mode 8: mid-run dynamic algorithm switching) results.
+    // Reuses this same struct/bookkeeping rather than a parallel data
+    // structure, same rationale as isMultiObjective above.
+    bool isPortfolioRun = false;
+    bool portfolioMultiProblem = false;
+    QString portfolioOutPrefix;   // "<out-prefix>" passed to --portfolio; CSVs are "<prefix>_<name>.csv"
+    QTableWidget* portfolioSegmentsTable = nullptr;
+    QTableWidget* portfolioSummaryTable = nullptr;
+    QTableWidget* portfolioRankingTable = nullptr;
+    QTableWidget* portfolioFriedmanTable = nullptr;
+    QTableWidget* portfolioWilcoxonTable = nullptr;
+    QTableWidget* portfolioUsageTable = nullptr;
+    QTableWidget* portfolioAggregateTable = nullptr;
+    QWidget* portfolioWilcoxonPlot = nullptr;   // WilcoxonBoxPlotWidget*
+    QWidget* portfolioFriedmanPlot = nullptr;   // RankPlotWidget*
+    QComboBox* portfolioMetricCombo = nullptr;  // synced Wilcoxon<->Friedman (final_f / evals_used / num_switches)
+    QComboBox* portfolioMetricCombo2 = nullptr;
+    QLabel* portfolioInfoLbl = nullptr;
+    QLabel* portfolioFriedmanLbl = nullptr;
+    QLabel* portfolioStatsHintLbl = nullptr;
+    bool portfolioLoaded = false;
   };
 
-  // Region focus (Selection / Settings / Output)
-  enum class FocusArea : int { None = 0, Selection = 1, Settings = 2, Output = 3 };
+  // Region focus inside a run-mode tab (Selection / Output). The Settings
+  // area is no longer one of the maximizable regions: it has its own
+  // top-level "Settings" tab (see buildUi()/assembleMainTabs()).
+  enum class FocusArea : int { None = 0, Selection = 1, Output = 3 };
+
+  // Top-level tab layout of the main window: one tab per run mode (indices
+  // 0..7 map 1:1 onto runModeBox_'s item data, i.e. onto the 8 run modes),
+  // followed by the Code Wizard and Settings tabs.
+  enum MainTabIndex : int {
+    kModeTabCount   = 8,
+    kCodeWizardTab  = 8,
+    kSettingsTab    = 9,
+    kHelpTab        = 10
+  };
 
 private slots:
   void onRefreshFactory();
@@ -171,6 +243,81 @@ private slots:
     void onStatsTestChanged(int index);
     void onExportRankPlotPng();
     void onExportWilcoxonPlotPng();
+    void onExportCdPlotPng();
+    void onGenerateReport();
+    void onRunMultiObjective();
+    void onMultiObjectiveProcessFinished(int exitCode, QProcess::ExitStatus status);
+    // Unified "Meta-dataset pipeline" mode (batch+rank, landscape sampling,
+    // and the two Python stages all live together here, driven by their own
+    // buttons rather than the shared Run/Stop button).
+    void onRunPipelineBatch();
+    void onPipelineBatchProcessFinished(int exitCode, QProcess::ExitStatus status);
+    void onPipelineRankProcessFinished(int exitCode, QProcess::ExitStatus status);
+    void onRunPipelineFeatures();
+    void onPipelineFeaturesProcessFinished(int exitCode, QProcess::ExitStatus status);
+    void onRunPipelineExtractEla();
+    // [pipeline] extract_ela_jobs from optimsolution.cfg -- passed to
+    // extract_ela_features.py as --jobs. See onRunPipelineExtractEla().
+    int  pipelineExtractElaJobsFromSettings() const;
+    void onRunPipelineTrainModel();
+    void onRunPipelineAblation(); // Reviewer 2, comment 4: feature-group ablation (Python, --ablation)
+    void onRunPipelineCompareClassifiers(); // Reviewer 2, comment 4: classifier comparison (Python, --compare-classifiers)
+    void onPipelinePyProcessFinished(int exitCode, QProcess::ExitStatus status);
+    // Re-derives the 4/5 pipeline stage-done flags from whatever output
+    // files already exist in optimsolution_gui_run/ (rather than assuming
+    // "not done" just because this is a fresh GUI session), and populates
+    // each stage's table from them. Called on every (re-)entry into
+    // pipeline mode and at the end of "Load previous experiment", so
+    // resuming earlier work never requires blindly re-running stages whose
+    // output is already sitting on disk.
+    void detectPipelineExistingOutputs();
+    // Shared by onPipelinePyProcessFinished() (a run that just finished)
+    // and detectPipelineExistingOutputs() (output found already on disk):
+    // reads meta_learning_results/ (and, if includeAblation /
+    // includeCompare, its ablation/ / classifier_comparison/ subfolders)
+    // into the "Meta-learning results" / "Feature ablation" / "Classifier
+    // comparison" tables. jumpToTab switches the inner tab widget to show
+    // whichever of the three is most relevant; pass false for a silent
+    // background (re-)detection.
+    void populatePipelineMetaLearningResults(bool includeAblation, bool includeCompare, bool jumpToTab);
+    // Mode 7 (--nnlandscape): trains NNProblem with the chosen optimizer,
+    // then samples the loss landscape locally around the found minimum.
+    // Same "own dedicated buttons instead of the shared Run/Stop button"
+    // convention as mode 6 (Meta-dataset pipeline) -- two independent
+    // stages: (1) the C++ CLI itself, (2) the Python analysis script.
+    void onRunNNLandscapeTrain();
+    void onNNLandscapeTrainProcessFinished(int exitCode, QProcess::ExitStatus status);
+    // Pooled-mode counterpart of the slot above, used only when
+    // nnParallelJobs_ > 1 (see nnActiveProcs_). Identifies which QProcess
+    // finished via sender(), since several may be in flight at once.
+    void onNNLandscapeJobSlotFinished(int exitCode, QProcess::ExitStatus status);
+    void onRunNNLandscapeAnalyze();
+    void onNNLandscapeAnalyzeProcessFinished(int exitCode, QProcess::ExitStatus status);
+    // Stage 3 (optional): bootstrap confidence intervals on the LODO R2/MAE/
+    // Spearman numbers stage 2 already wrote, by cluster-bootstrapping over
+    // datasets (py_scripts/bootstrap_lodo_ci.py, reads stage 2's own
+    // merged_dataset.csv -- no re-run of stage 1 or 2 needed). Addresses the
+    // "how stable is this R2 with only a couple dozen datasets" question
+    // directly, without a new training experiment.
+    void onRunNNLandscapeBootstrap();
+    void onNNLandscapeBootstrapProcessFinished(int exitCode, QProcess::ExitStatus status);
+    void onNNLandscapeBrowseDataset();
+    void onRunNNLandscapeLoadExperiment();
+    void onSaveNNBatchSelection();
+    void onLoadNNBatchSelection();
+    void onNNStatsUiChanged();
+    void onExportParetoPng();
+    void onExportParetoTable();
+    void onLandscapePlayToggled(bool checked);
+    void onLandscapeSliderMoved(int value);
+    void onLandscapeTimerTick();
+    void onExportLandscapePng();
+
+protected:
+  // Mirrors enable/disable state changes onto the mode tabs and the Code
+  // Wizard tab (see assembleMainTabs()). Never consumes an event.
+  bool eventFilter(QObject* watched, QEvent* event) override;
+  void changeEvent(QEvent* e) override;   // re-derive palette-based styling on a light/dark switch
 
 private:
   void buildUi();
@@ -179,6 +326,33 @@ private:
   void toggleRegionFocus(FocusArea area);
   void restoreRegionLayout();
   void updateRegionFocusStyling();
+
+  // ── Tabbed main window (run modes as tabs) ───────────────────────────
+  // The 8 run modes used to be chosen from the "Run mode" drop-down in the
+  // Selection area. They are now top-level tabs. runModeBox_ is still the
+  // single source of truth that all existing mode logic reads (it is just no
+  // longer visible); selecting a tab drives it, and a programmatic change of
+  // it (e.g. "Load batch selection...") moves the tab, so no mode logic had
+  // to change.
+  void assembleMainTabs(QWidget* central, QVBoxLayout* rootLay, QWidget* codeWizardPage);
+  void onMainTabChanged(int tabIndex);
+  void onRunModeComboChangedBefore(int mode);   // runs BEFORE onRunModeChanged()
+  void onRunModeComboChangedAfter(int mode);    // runs AFTER onRunModeChanged()
+  void placeWorkspaceForMode(int mode);         // re-parents Selection+Output into that mode's tab
+  void applyModeSpecificSelectionUi(int mode);  // hides rows that do not apply to the mode
+  void applyModeWorkspaceSizes(int mode);       // Selection/Output split for the mode
+  void filterOutputTabsForMode(int mode);       // each mode shows only its own run tabs
+  void updateModeTabsLock();                    // grey out other modes while a run is active
+  void keepWindowWidthAcrossSwitch(int widthBefore);
+  QWidget* buildHelpPage();                     // content of the "Help" tab
+  QString  helpUserGuidePath() const;            // docs/optimsolution_manual_en.pdf, or empty if not found
+  QString  helpSystemInfoText() const;           // plain-text "about / environment" block
+  bool isRunBusy() const;                       // true while any run/stage is in flight
+  // "New experiment in another mode" guard (see guardedStart()).
+  bool guardedStart(int mode, const std::function<void()>& starter);
+  QStringList runOutputFolders() const;          // existing optimsolution_gui_run folders of this session
+  int  countFilesIn(const QStringList& folders) const;
+  int  currentModeIndex() const;                // runModeBox_ item data (0 if unavailable)
   void loadFactoryLists();
   void loadSettings();
   void populateSettingsTables();
@@ -194,8 +368,34 @@ private:
 
   void tryLoadSensitivityForTab(int index);
   void renderSensitivityForParam(int tabIndex, const QString& paramName);
+  // Populates the Results tab's table with ALL swept parameters at once
+  // (one "Parameter" column identifies each row's sweep), independent of
+  // whatever parameter is currently selected in the Parameter Sensitivity
+  // chart tab's combo box. See MainWindow_Tabs.cpp for why this exists as
+  // a separate function from renderSensitivityForParam().
+  void populateSensitivitySummaryAllParams(int tabIndex, const QString& csvPath, const QStringList& paramCols);
   void updateDimUiForProblem(const QString& problem);
   int  fixedDimForProblem(const QString& problem) const;
+  // Multi-value dimension restriction (e.g. CEC2017: {10,30,50}), separate
+  // from the single-value fixedDimForProblem() mechanism above -- see
+  // include/allowed_dims.h for why these are kept as two distinct concepts.
+  std::vector<int> allowedDimsForProblem(const QString& problem) const;
+  // Text shown for a problem in the problem dropdown, the Batch/Sensitivity
+  // problem lists and their Dims tables: the short name, followed by the
+  // supported dimensions when the problem only accepts some of them, e.g.
+  // "cec2017f1  (D: 10, 30, 50)". Display only -- every list keeps the bare
+  // short name as its item data, and that is what the code reads.
+  QString problemDisplayName(const QString& problem) const;
+  // Inverse of problemDisplayName() for TEXT (the problem combo box is
+  // editable): strips a trailing "  (D: ...)" and returns the short name.
+  // Text without that suffix (e.g. a name typed by hand) is returned as is.
+  static QString problemNameFromDisplay(const QString& text);
+  // For problems with a restricted dimension set (CEC2017 / CEC2022): keeps
+  // only the supported entries of `dims` (sorted); if none is left -- or
+  // `dims` is empty -- returns ALL supported dimensions. For every other
+  // problem `dims` is returned unchanged.
+  QVector<int> restrictToAllowedDims(const QString& problem, const QVector<int>& dims) const;
+  void snapDimSpinToAllowed();
 
   int createOutputRunTab(const QString& methodShort, const QString& problemShort, int problemDim);
   OutputRunTab* outputTab(int index);
@@ -203,7 +403,128 @@ private:
   OutputRunTab* activeOutputTab();
   const OutputRunTab* activeOutputTab() const;
   void tryLoadConvergenceForTab(int index);
-  void updateConvergencePlotForTab(int index);
+  void tryLoadPortfolioForTab(int index);
+  void rebuildPortfolioPlotsForTab(int index);  void updateConvergencePlotForTab(int index);
+  QString buildBatchReportHtml(bool includeConvergence) const;
+  QString buildSensitivityReportHtml(int tabIndex) const;
+  bool writeReportDocument(const QString& html, const QString& filePath) const;
+  int createMultiObjectiveOutputTab(const QString& method, const QString& problem, int dim);
+  int createPipelineOutputTab(); // lazily created once, reused by all 4 pipeline stages
+  int createNNLandscapeOutputTab();   // mode 7's own output tab (Log + Wilcoxon + Rankings)
+  void populateNNDatasetList();       // scans datasetsDir() for *.train, fills nnDatasetsList_
+  void populateNNOptimizerList();     // fills nnOptimizersList_ from listMethodNames() -- ALL of them
+  void refreshNNButtonStates();       // enables "2. Analyze" once nnStage1Done_ is true
+  void refreshNNSeedInfoLabel();      // updates "Seeds" to preview what a Train click would use
+  void flushPipelineLog();
+  // Generic 300-DPI PNG export for the pipeline's own plot widgets
+  // (RankPlotWidget/WilcoxonBoxPlotWidget instances in the Rankings/
+  // Wilcoxon/Friedman tabs) -- same render()-at-scale technique as
+  // exportRankPlotPng()/exportWilcoxonPlotPng(), just widget-generic since
+  // those two are tied to mode 1's own rankPlot_/wilcoxonPlot_ members.
+  bool exportPipelinePlotPng(QWidget* widget, const QString& outPath, bool isTransparent) const;
+  // Reads batch_method_summary.csv / batch_ranked.csv / batch_wilcoxon.csv /
+  // batch_friedman.txt from optimsolution_gui_run/ and fills in the
+  // Rankings/Wilcoxon/Friedman tabs. Called once stage 1 (batch + rank)
+  // succeeds.
+  void populatePipelineStatsTabs();
+  // Stage 2 raw-data tab (Landscape files) -- lists every generated
+  // *_features.csv with its basic metadata (problem, dim, n_samples,
+  // modality, separability), parsed from each file's own first data row.
+  void populatePipelineLandscapeFilesTable();
+  // Stage 3 raw-data tab (ELA features) -- the full ela_features.csv, so a
+  // researcher can inspect the actual feature values stage 4 will train on.
+  void populatePipelineElaFeaturesTable();
+  // Session-scoped completion tracking for the 4 pipeline stages -- these
+  // are NOT derived from file existence (leftover files from an earlier
+  // session must not silently mark a stage as "done" in a fresh one).
+  // Reset to false (all checkmarks hidden, stage 3/4 disabled) on entering
+  // pipeline mode and on "Delete output files"; set true only by this
+  // session's own successful stage completions.
+  bool pipelineStage1Done_ = false;
+  bool pipelineStage2Done_ = false;
+  bool pipelineStage3Done_ = false;
+  bool pipelineStage4Done_ = false;
+  bool pipelineAblationDone_ = false; // Reviewer 2, comment 4: feature-group ablation
+  bool pipelineCompareDone_ = false; // Reviewer 2, comment 4: classifier comparison
+  void resetPipelineButtonStates();
+  // Narrower version used specifically by onLoadPipelineExperiment() --
+  // resets only the 4 stage checkmarks, without touching
+  // pipelineExperimentLoaded_/pipelineLoadedTripleKeys_ (see definition).
+  void resetPipelineStageFlags();
+  void refreshPipelineButtonStates();
+  // "Load previous experiment" (add/remove workflow): when a previous
+  // batch_master.csv has been loaded, pipelineExperimentLoaded_ is true and
+  // pipelineLoadedTripleKeys_ holds every (method,problem,dim) triple it
+  // already contains, as "method|problem|dim" strings. Stage 1 then runs
+  // ONLY the combinations newly selected but not yet on disk, and deletes
+  // the summary CSVs of any combination that's no longer selected --
+  // unlike Batch run (mode 1)'s own CSV loader, which can only ever add
+  // more runs on top of what's already there. Reset (back to today's
+  // full-recompute default) on entering the pipeline mode or on
+  // "Delete output files".
+  bool pipelineExperimentLoaded_ = false;
+  QSet<QString> pipelineLoadedTripleKeys_;
+  QSet<QString> pipelinePendingDesiredKeys_; // computed at Stage-1 launch, applied to pipelineLoadedTripleKeys_ on success
+  void onLoadPipelineExperiment();
+  // Diagnostic transparency: logs exactly which (problem,dim) groups
+  // became newly complete/incomplete/brand-new vs. the loaded baseline
+  // after a Stage-1 rerun -- see definition for why this matters.
+  void logPipelineGroupChanges();
+  // Disables/enables Selection, Settings, "Delete output files" and "Load
+  // previous experiment" while any of the 4 pipeline stages is running --
+  // "Open output folder" and "Maximize" are deliberately left alone. Called
+  // at the start of each stage's launch and unconditionally (success or
+  // failure) when that stage's process finishes. Mirrors the exact same
+  // pattern the main Run button already uses for every other mode (see
+  // MainWindow_ProcessSettings.cpp).
+  void setPipelineUiEnabled(bool enabled);
+  // "Metric" dropdown (Rankings/Wilcoxon/Friedman tabs): which
+  // batch_master.csv column --rank ranks by (defaults to "mean_f").
+  // Persisted here so it survives across Stage-1 re-runs instead of
+  // silently reverting to the default every time.
+  QString pipelineMetricColumn_ = "mean_f";
+  QProcess* pipelineMetricRerankProc_ = nullptr;
+  void onPipelineMetricChanged(const QString& column);
+
+  // Per-stage wall-clock timing (mode 6 / pipeline). Persisted to
+  // "pipeline_timings.csv" in optimsolution_gui_run/ so that reloading a
+  // previous experiment (see onLoadPipelineExperiment()) can still show how
+  // long each stage took last time, not just within the current session.
+  QElapsedTimer pipelineStage1Timer_;
+  QElapsedTimer pipelineStage2Timer_;
+  QElapsedTimer pipelineStage3Timer_;
+  QElapsedTimer pipelineStage4Timer_;
+  QElapsedTimer pipelineAblationTimer_;
+  QElapsedTimer pipelineCompareTimer_;
+  // Reads/writes exactly one row per stage key ("batch_ranking",
+  // "landscape_sampling", "extract_ela", "train_model") -- read-modify-write
+  // so saving one stage's timing never clobbers the others already on disk.
+  void savePipelineStageTiming(const QString& stageKey, double seconds);
+  QMap<QString, double> loadPipelineStageTimings();
+  // Updates the per-stage time labels + the cumulative total label (shown
+  // only once all 4 stages have a recorded time) from whatever is
+  // currently on disk. Called after any stage finishes, after loading a
+  // previous experiment, and cleared on resetPipelineButtonStates().
+  void refreshPipelineTimingLabels();
+  // Drives the shared outputProgressBar_/progressWidget_ for pipeline
+  // stages (same widget Batch run etc. use, via MainWindow_ProcessSettings.cpp
+  // -- the pipeline's own separate QProcess objects need their own calls
+  // into it since they don't go through that shared code path).
+  void startPipelineProgress(const QString& label);
+  void finishPipelineProgress(bool success);
+  // Finds a Python interpreter that actually has `requiredModules` importable
+  // -- not just "some python that runs" (a bare "py" on Windows can resolve
+  // to a different/newer install than the one the required packages were
+  // installed into). Tries several common version selectors. Returns a
+  // "<program> [args...]" spec (split on spaces) or empty if none qualify.
+  QString findPythonForModules(const QStringList& requiredModules) const;
+  QString pyScriptsDir() const;          // <projectRoot_>/py_scripts
+  QString datasetsDir() const;           // <projectRoot_>/datasets -- used by mode 7 (--nnlandscape)
+  void loadParetoCsvIntoTab(int index, const QString& csvPath);
+  bool exportParetoPng(int index, const QString& filePath) const;
+  void tryLoadLandscapeForTab(int index);
+  void ensureLandscapeGridForTab(int index);
+  bool exportLandscapePng(const QString& filePath);
 
   bool exportConvergencePlotPng(int outputTabIndex, const QString& filePath);
 
@@ -295,13 +616,55 @@ private:
                                         QString* err) const;
 
     bool loadBatchCellFromConvergence(const QString& csvPath, BatchCellData& out, QString* err) const;
+
+    // --- U-score ("trial-based dominance") batch report ---------------
+    // See include/uscore.h for the ranking algorithm itself (Qt-free, unit
+    // tested in tests/test_uscore.cpp). These two methods are the only
+    // GUI-side additions needed to run it automatically at the end of a
+    // batch, using the same convergence CSVs already produced by the CLI.
+    //
+    // Reads one method/problem's *_convergence.csv and returns, per run,
+    // the full (evals, best_f) trace sorted by ascending evals. Mirrors
+    // loadBatchCellFromConvergence()'s CSV parsing but keeps the whole
+    // trace instead of collapsing it into a BatchCellData.
+    bool loadRunTracesFromConvergenceCsv(const QString& csvPath,
+                                          std::vector<std::vector<optimsolution::uscore::EvalPoint>>& outRuns,
+                                          QString* err) const;
+
+    // Computes the U-score ranking for every problem that has >=2 methods
+    // in the just-finished batch (using g_liveBatchCsvPaths), aggregates
+    // it into an overall ranking, and writes a "uscore_report_<timestamp>.xlsx"
+    // workbook next to the batch's own convergence CSVs -- with an "About"
+    // sheet, a "Ranking" sheet (mirrors the CEC-2025-slides pp. 19-20
+    // Algorithm/Ranking tables) and a "Per-Problem U-scores" sheet (mirrors
+    // pp. 22-23's Prob\Algo tables, incl. the trailing Sum/RS row) -- then
+    // logs its path. Called once, additively, at the very end of
+    // finalizeBatch(); does nothing (and never throws) if fewer than two
+    // methods were compared.
+    void exportUScoreReport();
     double aggregateValues(const QVector<double>& vals, const QString& agg) const;
     double stdevValues(const QVector<double>& vals) const;
     bool exportStatsToXlsxNative(const QString& outPath) const;
     bool exportStatsToXlsxViaPython(const QString& outPath, const QString& csvPath);
+    // Generic "any QTableWidget -> xlsx (falls back to csv)" export, reusing
+    // the same xlsx machinery as the batch derived-table export buttons
+    // above (temporarily points statsTable_ at the given table). Shows the
+    // save dialog itself; returns without doing anything if the table is
+    // empty. Used by Mode 8's Segments/Summary tables.
+    void exportTableWidgetToXlsxOrCsv(QTableWidget* table, const QString& dialogTitle, const QString& defaultPath);
+    // Generic "any QWidget -> 300 DPI PNG" export, matching the exact DPI
+    // math already used by exportWilcoxonPlotPng()/exportRankPlotPng()/
+    // exportCdPlotPng() above (96 -> 300 DPI scale, embedded DPI metadata,
+    // antialiased QPainter::render()). Used by Mode 8's Wilcoxon/Friedman
+    // plots, which are separate widget instances from the Batch-run ones
+    // above and so need a caller-supplied widget rather than a hardcoded
+    // member pointer.
+    bool exportWidgetToPng300Dpi(QWidget* widget, const QString& filePath) const;
+    bool exportTableWidgetToXlsxNative(QTableWidget* table, const QString& outPath) const;
     bool exportSensitivityPlotPng(int outputTabIndex, const QString& filePath);
     bool exportRankPlotPng(const QString& filePath);
     bool exportWilcoxonPlotPng(const QString& filePath);
+    bool exportCdPlotPng(const QString& filePath);
     void updateOutputInnerTabsForRunMode();
     QString batchMetricYAxisLabel() const;
   QString currentProblemShort() const;
@@ -316,19 +679,34 @@ private:
   // Guards against signal re-entrancy while the UI is programmatically updated.
   bool internalUpdate_ = false;
 
-  // Region focus state (Selection / Settings / Output)
+  // Region focus state (Selection / Output inside a run-mode tab)
   FocusArea focusedArea_ = FocusArea::None;
-  QVector<int> selectionSettingsSplitterSizes_;
 
   // Region widgets and controls (for focus/restore UI only)
   QGroupBox* selectionBox_ = nullptr;
   QGroupBox* settingsBox_ = nullptr;
   QGroupBox* outputBox_ = nullptr;
-  QGroupBox* wizardBox_ = nullptr;
-  QSplitter* selectionSettingsSplitter_ = nullptr;
-  QSplitter* bottomSplit_ = nullptr;
+
+  // Tabbed main window. mainTabs_ holds one tab per run mode (0..7), then the
+  // Code Wizard tab and the Settings tab. The Selection + Output areas are a
+  // single shared "workspace" (workspace_) that is re-parented into whichever
+  // mode tab is active, so every mode keeps using the very same widgets and
+  // handlers as before. The Settings area (settingsBox_, with its own inner
+  // tabs_) lives in the Settings tab; the Code Wizard has its own tab.
+  QTabWidget* mainTabs_ = nullptr;
+  QWidget* workspace_ = nullptr;
+  QSplitter* workspaceSplitter_ = nullptr;   // vertical: Selection above, Output below
+  QWidget* codeWizardPage_ = nullptr;
+  QVector<QWidget*> modePages_;              // one page per run mode (placeholder for workspace_)
+  int  lastMainTab_ = 0;                     // previously shown top-level tab (for lock revert)
+  bool mainTabRevertGuard_ = false;          // suppresses onMainTabChanged() during programmatic tab moves
+  int  shownMode_ = 0;                       // run mode whose workspace/output tabs are currently displayed
+  bool outputFilterGuard_ = false;           // re-entrancy guard for filterOutputTabsForMode()
+  QVector<QVector<int>> modeSplitterSizes_;  // per-mode Selection/Output split (user-adjusted)
+  QPointer<QWidget> modeLastOutputPage_[kModeTabCount];  // last active output page, per mode
+  QString modeStatusText_[kModeTabCount];                // Output status line ("Completed. ...") per mode
+  bool    modeHasResults_[kModeTabCount] = {};           // a run of this mode produced output in this session
   QPushButton* selectionMaxBtn_ = nullptr;
-  QPushButton* settingsMaxBtn_ = nullptr;
   QPushButton* outputMaxBtn_ = nullptr;
 
   // Cached capability probe for the CLI.
@@ -344,6 +722,209 @@ private:
   QFormLayout* selectionForm_ = nullptr; // Selection form layout (used to hide label rows in batch mode)
   QPushButton* runBtn_ = nullptr;
     QComboBox*  runModeBox_ = nullptr;
+    QGroupBox*  moPanel_ = nullptr;
+    QComboBox*  moProblemBox_ = nullptr;
+    QComboBox*  moMethodBox_ = nullptr;
+    QSpinBox*   moDimSpin_ = nullptr;
+    // Multi-objective runs use their own QProcess, entirely separate from
+    // proc_ (used by Single/Batch/Sensitivity), so nothing about how those
+    // modes launch/monitor/parse their CLI process is touched.
+    QProcess*   moProc_ = nullptr;
+    // Unified "Meta-dataset pipeline" mode (run mode 5): replaces the former
+    // separate Headless-batch-export and Landscape-features modes. Reuses
+    // batchPanel_ (methods+problems selection, including per-problem
+    // dimension overrides) for input; its own panel below only adds the
+    // 4 action buttons plus a sample-count spinbox. Each stage writes into
+    // optimsolution_gui_run/, feeding the next: batch -> rank -> features ->
+    // (Python) ELA extraction -> (Python) meta-learner training. Stages are
+    // triggered by their own dedicated buttons, not the shared Run/Stop
+    // button (which is hidden for this mode -- see updateBatchPanelVisibility()).
+    QGroupBox*   pipelinePanel_          = nullptr;
+    QPushButton* pipelineRunBatchBtn_    = nullptr;
+    QPushButton* pipelineRunFeaturesBtn_ = nullptr;
+    QPushButton* pipelineExtractElaBtn_  = nullptr;
+    QPushButton* pipelineTrainModelBtn_  = nullptr;
+    // Reviewer 2, comment 4 ("feature-group ablations ... would help
+    // explain why and when landscape information is useful"): an optional
+    // 5th stage, re-running the same fold-safe LOPO protocol as stage 4
+    // once per ELA feature family (excluded, then in isolation). Shares
+    // stage 4's prerequisites (stage 1 + stage 3 done) since it re-derives
+    // everything stage 4 does internally, via train_meta_learner.py's
+    // --ablation flag -- it does not depend on stage 4 having been run.
+    QPushButton* pipelineAblationBtn_    = nullptr;
+    // Reviewer 2, comment 4 ("comparisons with alternative selection
+    // models ... would help explain why and when landscape information is
+    // useful"): another optional stage, re-running the same fold-safe LOPO
+    // protocol with SVM, Gradient Boosting, and Logistic Regression
+    // alongside this study's own Random Forest. Shares stage 4's own
+    // prerequisites, exactly like the ablation stage.
+    QPushButton* pipelineCompareBtn_     = nullptr;
+    QSpinBox*    pipelineSamplesSpin_    = nullptr;
+    // One spinner per stage (right next to its button), same widget class
+    // as the shared busySpinner_ used elsewhere.
+    BusySpinner* pipelineBatchSpinner_    = nullptr;
+    BusySpinner* pipelineFeaturesSpinner_ = nullptr;
+    BusySpinner* pipelineExtractSpinner_  = nullptr;
+    BusySpinner* pipelineTrainSpinner_    = nullptr;
+    BusySpinner* pipelineAblationSpinner_ = nullptr;
+    BusySpinner* pipelineCompareSpinner_  = nullptr;
+
+    QProcess*    pipelineBatchProc_    = nullptr; // stage 1a: --batch
+    QProcess*    pipelineRankProc_     = nullptr; // stage 1b: --rank (auto-chained after 1a)
+    QProcess*    pipelineFeaturesProc_ = nullptr; // stage 2: --features (looped, one pair at a time)
+    QProcess*    pipelinePyProc_       = nullptr; // stage 3/4: python (reused sequentially, never concurrent)
+    // Which of the two Python stages pipelinePyProc_ currently belongs to,
+    // if any -- so that clicking one stage's button while the OTHER stage
+    // is running can warn correctly ("training is still running") instead
+    // of silently killing the wrong process with a misleading "stopping X"
+    // message.
+    enum class PipelinePyStage { None, Extract, Train, Ablation, CompareClassifiers };
+    PipelinePyStage pipelinePyRunningStage_ = PipelinePyStage::None;
+
+    // Stage-1 (batch) output can run to tens of thousands of lines -- same
+    // throttled-logging technique used before: raw output streams straight
+    // to disk, only a filtered/capped subset is periodically flushed into
+    // the visible tab (see flushPipelineLog()).
+    QString      pipelineLogBuffer_;
+    QFile*       pipelineLogFile_        = nullptr;
+    QTimer*      pipelineFlushTimer_     = nullptr;
+
+    // Stage-2 (features) processes one (problem, dim) pair at a time from
+    // this queue, advancing on each QProcess::finished -- avoids spawning
+    // dozens of processes at once and keeps a clean, readable progress log.
+    std::vector<std::pair<QString,int>> pipelineFeatureQueue_;
+    int          pipelineFeatureTotal_   = 0;
+
+    int          pipelineOutputTabIndex_ = -1; // single tab reused by all 4 stages
+
+    // ── Mode 7 (--nnlandscape): NN local landscape / generalization gap ────
+    // Selection-area settings panel + Output-area action panel, same split
+    // as the Meta-dataset pipeline mode above (settings live in Selection,
+    // actions that produce output live in Output). Batch-capable: multiple
+    // datasets x multiple architectures x multiple optimizers x "Runs" seeds
+    // (seed_base from optimsolution.cfg, same convention every other mode
+    // already uses -- see globalRunsFromSettings()/cfg_).
+    QGroupBox*      nnLandscapePanel_    = nullptr;  // Selection area
+    QListWidget*    nnDatasetsList_      = nullptr;  // multi-select, populated from datasetsDir()
+    QPushButton*    nnDatasetBrowseBtn_  = nullptr;  // adds an extra checked entry outside datasetsDir()
+    QLineEdit*      nnHiddenEdit_        = nullptr;  // ';'-separated architectures, e.g. "8;16;8,8"
+    QComboBox*      nnActivationBox_     = nullptr;  // relu|tanh|sigmoid (applies to every arch in the batch)
+    QListWidget*    nnOptimizersList_    = nullptr;  // multi-select, ALL of listMethodNames()
+    QSpinBox*       nnIterationsSpin_    = nullptr;
+    QSpinBox*       nnPopulationSpin_    = nullptr;
+    QDoubleSpinBox* nnWBoundSpin_        = nullptr;
+    QLineEdit*      nnRadiiEdit_         = nullptr;  // e.g. "0.02,0.05,0.1"
+    QSpinBox*       nnLocalSamplesSpin_  = nullptr;  // 0 = auto (30*dim)
+    QLineEdit*      nnLabelEdit_         = nullptr;  // optional run label
+
+    QGroupBox*      nnActionPanel_       = nullptr;  // Output area
+    QPushButton*    nnSaveSelectionBtn_  = nullptr;  // Selection area: "Save batch selection..." (own .batchsel dialect)
+    QPushButton*    nnLoadSelectionBtn_  = nullptr;  // Selection area: "Load batch selection..."
+    QPushButton*    nnLoadExperimentBtn_ = nullptr;  // "Load previous experiment..." (replaces "Refresh plots" for this mode)
+    BusySpinner*    nnLoadExperimentSpinner_ = nullptr;
+    QString         nnLoadedRunDir_;      // empty = use the default runtime dir; set by "Load previous experiment..."
+    // Set of "dataset|archTag|optimizer|seed" keys already present in a
+    // loaded experiment's nn_summary.csv -- mirrors pipelineLoadedTripleKeys_.
+    // Consulted when building a new batch queue so re-running after a load
+    // only adds genuinely new combinations instead of duplicating rows.
+    QSet<QString>   nnLoadedTripleKeys_;
+    QPushButton*    nnRunTrainBtn_       = nullptr;  // stage 1: optimsolution --nnlandscape (looped over the batch queue)
+    BusySpinner*    nnTrainSpinner_      = nullptr;
+    QPushButton*    nnRunAnalyzeBtn_     = nullptr;  // stage 2: python train_gap_regressor_logtransform.py
+    BusySpinner*    nnAnalyzeSpinner_    = nullptr;
+    // Stage 2 modifier: applies a signed-log transform, slog(x) = sign(x) *
+    // log1p(|x|), to every loss-scale quantity (local-sample f values,
+    // train_loss, and the gen_gap_loss target) before any statistic or
+    // model is fit, to test whether a small number of extreme-scale
+    // datasets (e.g. very high-dimensional regression problems) are
+    // distorting the LODO result -- see the article's Discussion and
+    // Limitations section, "scale explanation". OFF by default; leaving it
+    // unchecked reproduces the original train_gap_regressor.py behaviour
+    // exactly (train_gap_regressor_logtransform.py is a strict superset).
+    QCheckBox*      nnLogTransformCheck_ = nullptr;
+    QPushButton*    nnRunBootstrapBtn_   = nullptr;  // stage 3 (optional): python bootstrap_lodo_ci.py
+    BusySpinner*    nnBootstrapSpinner_  = nullptr;
+
+    QProcess*       nnTrainProc_         = nullptr;
+    QProcess*       nnAnalyzeProc_       = nullptr;
+    QProcess*       nnBootstrapProc_     = nullptr;
+    // Opt-in process-pool parallelism for stage 1 (see optimsolution.cfg's
+    // [nnlandscape] parallel_jobs, read by nnLandscapeParallelJobsFromSettings()).
+    // Left at 1 (and nnActiveProcs_ empty), the ORIGINAL serial code path
+    // above (nnTrainProc_, one at a time) is used completely unchanged.
+    // Only when parallel_jobs > 1 does startNNLandscapeJobSlots() launch
+    // more than one --nnlandscape OS process at once, tracked here; see
+    // its definition in MainWindow_NNLandscape.cpp for the full safety
+    // reasoning (each job writes its own private summary row instead of
+    // appending to the shared nn_summary.csv directly).
+    int             nnParallelJobs_      = 1;
+    QVector<QProcess*>    nnActiveProcs_;
+    QMap<QProcess*,QString> nnPendingRowPath_;
+    int             nnLandscapeParallelJobsFromSettings() const;
+    // [nnlandscape] bootstrap_jobs from optimsolution.cfg -- passed to
+    // bootstrap_lodo_ci.py as --jobs. See onRunNNLandscapeBootstrap().
+    int             nnLandscapeBootstrapJobsFromSettings() const;
+    void            startNNLandscapeJobSlots();
+    // Session-scoped: true once at least one training run has appended a
+    // row to nn_summary.csv, which is what unlocks "2. Analyze". Deliberately
+    // NOT re-derived from disk on entering the mode (mirrors
+    // pipelineStage1Done_'s own comment: a stale nn_summary.csv from an
+    // earlier session shouldn't silently unlock stage 2 without the user
+    // having done anything in THIS session).
+    bool            nnStage1Done_        = false;
+    // Mirrors nnStage1Done_ for stage 2: true once "2. Analyze" has
+    // completed successfully at least once this session, which is what
+    // unlocks the optional "3. Bootstrap CI" stage (it reads stage 2's
+    // merged_dataset.csv, so it cannot run before stage 2 has written one).
+    bool            nnStage2Done_        = false;
+    int             nnOutputTabIndex_    = -1; // single tab reused by both stages
+    QElapsedTimer   nnStage1Timer_;    // whole-batch elapsed (all queued runs)
+    QElapsedTimer   nnStage2Timer_;
+    QElapsedTimer   nnStage3Timer_;
+
+    // Batch queue: each entry is {datasetPath, archSpec, optimizerName, seed}.
+    // Built once when "1. Train + sample landscape" is pressed (cartesian
+    // product of selected datasets x parsed architectures x selected
+    // optimizers x range(runs), seed = seed_base + run_index), then drained
+    // one at a time on nnTrainProc_'s finished signal -- same queue-advance
+    // pattern as onPipelineFeaturesProcessFinished().
+    QVector<QStringList> nnQueue_;
+    int             nnQueueTotal_        = 0;
+    int             nnQueueOk_           = 0;
+    int             nnQueueFailed_       = 0;
+
+    // Wilcoxon/Rankings tabs (inside the same output tab as Log), rebuilt
+    // from nn_summary.csv after every batch completes. "Problem" here means
+    // a (dataset, architecture) pair; "Method" means an optimizer -- the
+    // same problem-as-subject pairing convention the framework's own
+    // Wilcoxon/Friedman tabs use for algorithm comparison, just computed
+    // fresh here rather than reusing the batch-benchmark-specific
+    // rebuildStatsComparisons() pipeline (that one parses raw per-run CLI
+    // text output; nn_summary.csv already has clean numeric columns).
+    QComboBox*      nnWilcoxonMetricCombo_ = nullptr;
+    QLabel*         nnWilcoxonSummaryLbl_  = nullptr;
+    QWidget*        nnWilcoxonPlot_        = nullptr; // WilcoxonBoxPlotWidget
+    QTableWidget*   nnRankingsTable_       = nullptr;
+    // "The most important information" (raw + aggregated results tables,
+    // exportable to XLSX -- the numbers that go directly into an article's
+    // own results tables, not just a plot). Populated by rebuildNNStats()
+    // alongside Wilcoxon/Rankings; the LODO/importance tables are populated
+    // separately by onNNLandscapeAnalyzeProcessFinished() once stage 2
+    // (Python) has written its own lodo_results.csv/feature_importance.csv.
+    QTableWidget*   nnResultsTable_        = nullptr; // one row per run, every nn_summary.csv column
+    QTableWidget*   nnMeanTable_           = nullptr; // one row per (dataset,arch,optimizer): mean+std+N
+    QTableWidget*   nnLodoTable_           = nullptr; // from nn_analysis/lodo_results.csv (stage 2)
+    QTableWidget*   nnImportanceTable_     = nullptr; // from nn_analysis/feature_importance.csv (stage 2)
+    // from nn_analysis/merged_dataset_bootstrap_ci.csv (stage 3, optional):
+    // median + 95% CI per (feature set, metric), cluster-bootstrapped over
+    // datasets. Populated by onNNLandscapeBootstrapProcessFinished().
+    QTableWidget*   nnBootstrapTable_      = nullptr;
+    void rebuildNNStats(); // reads nn_summary.csv, refreshes Results/Mean/Wilcoxon/Rankings tabs
+    void loadNNAnalysisTables(const QString& outDir); // reads lodo_results.csv/feature_importance.csv
+    void loadNNBootstrapTable(const QString& outDir); // reads merged_dataset_bootstrap_ci.csv (stage 3)
+    QString nnActiveRunDir() const; // nnLoadedRunDir_ if set (via "Load previous experiment..."), else the default runtime dir
+    void setNNLandscapeUiEnabled(bool enabled); // mirrors setPipelineUiEnabled() for mode 7
+
     QWidget*     batchPanel_        = nullptr;
     QWidget*     sensProblemPanel_  = nullptr;
     QListWidget* sensProblemsList_  = nullptr;
@@ -495,6 +1076,7 @@ private:
     QPushButton*  exportStatsBtn_ = nullptr;
     QTableWidget* statsTable_ = nullptr;
     QLabel*       statsNoteLbl_ = nullptr;
+    QPushButton*  generateReportBtn_ = nullptr;
     QComboBox*    statsAlphaCombo_ = nullptr;
     QTabWidget*   statsTabs_ = nullptr;
     // Wilcoxon tab
@@ -507,6 +1089,13 @@ private:
     QWidget*      rankPlot_ = nullptr;          // RankPlotWidget
     QTableWidget* statsPairwiseTable_ = nullptr;
     QLabel*       statsSummaryLbl_ = nullptr;
+    // Critical Difference (Nemenyi) tab
+    QPushButton*  exportCdPlotBtn_ = nullptr;
+    QWidget*      cdPlot_ = nullptr;            // CDDiagramWidget
+    QLabel*       cdSummaryLbl_ = nullptr;
+    // Landscape animation (single shared timer drives whichever tab started playback)
+    QTimer*       landscapeTimer_ = nullptr;
+    int           landscapePlayingTabIndex_ = -1;
     // v40: incremental batch statistics table updates (avoid rebuilding the full table per job).
     bool statsBatchTableActive_ = false;
     QStringList statsBatchMethods_;
@@ -528,6 +1117,20 @@ private:
   QPushButton* loadBatchSelectionBtn_ = nullptr;
   QPushButton* loadExperimentCsvBtn_  = nullptr;
   QWidget*     progressWidget_        = nullptr;
+  // Live "time elapsed" readout shown ABOVE-RIGHT of outputProgressBar_
+  // (inside progressWidget_ -- see its construction in MainWindow_Ui.cpp),
+  // ticking once a second WHILE a stage actually runs. Wired up only via
+  // startPipelineProgress()/finishPipelineProgress(), which only the
+  // Meta-dataset pipeline (mode 6) and NN landscape (mode 7) stage
+  // functions call -- so it only ever appears for those two modes. Fully
+  // separate from outputElapsedLbl_/runElapsedTimer_ below (single-run/
+  // batch mode's own elapsed readout) and from each mode's own per-stage
+  // "(Xs, N/M ok)" labels (pipelineBatchTimeLbl, nnTrainTimeLbl, ...),
+  // neither of which this change touches.
+  QLabel*      pipelineElapsedLbl_    = nullptr;
+  QTimer*      pipelineElapsedTimer_  = nullptr;
+  QElapsedTimer pipelineElapsedClock_;
+  void         updatePipelineElapsedLabel();
   QLabel*      outputStatusLbl_       = nullptr;
   QLabel*      outputElapsedLbl_      = nullptr;
   QTimer*      runElapsedTimer_       = nullptr;
@@ -556,9 +1159,15 @@ private:
   QTableWidget* sensitivityTable_ = nullptr;
   QCheckBox* sensitivityEnableChk_ = nullptr;
 
-  QTabWidget* outputTabs_ = nullptr;
+  ModeAwareTabWidget* outputTabs_ = nullptr;   // run tabs of all modes; each mode tab shows only its own (see ModeAwareTabWidget.h)
   QPushButton* reloadConvergenceBtn_ = nullptr;
   QPushButton* clearCsvBtn_ = nullptr;
+  QPushButton* openOutputFolderBtn_ = nullptr;
+  // "Load previous experiment" (Meta-dataset pipeline mode only) -- lives
+  // in the main Output toolbar, right after "Delete output files", visible
+  // only for that mode (see updateBatchPanelVisibility()).
+  QPushButton* pipelineLoadExperimentBtn_ = nullptr;
+  BusySpinner* pipelineLoadExperimentSpinner_ = nullptr;
   QCheckBox* forceConvergenceCsvChk_ = nullptr;
 
   // Output progress (separate from the busy spinner near Run/Stop).
@@ -574,6 +1183,9 @@ private:
   QString projectRoot_;
   QString settingsPath_;
   int currentFixedDim_ = 0;
+  // Non-empty only for multi-value-restricted problems (e.g. CEC2017's
+  // D in {10,30,50}); see allowedDimsForProblem()/snapDimSpinToAllowed().
+  std::vector<int> currentAllowedDims_;
 
   std::unique_ptr<ConfigFile> cfg_;
 

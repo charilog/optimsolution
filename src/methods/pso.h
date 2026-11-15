@@ -21,13 +21,26 @@ public:
         end_local_method_ = method;
     }
 
+    // Opt-in to "[global] max_evals = <N>xD" (budget scales with the
+    // problem's dimension) -- see options.h. Every other method is
+    // unaffected by this override existing here.
+    void setGeneralOptions(const GeneralOptions& g) override {
+        Optimizer::setGeneralOptions(g);
+        if (g.max_evals_per_dim > 0 && prob_) {
+            max_evals_ = g.max_evals_per_dim * (long long)prob_->dimension();
+        }
+    }
+
     // configure(): reads method-specific parameters from [pso]
     void configure(const MethodConfig& mc) override {
-        // Population override (as in DE)
-        int pop_override = mc.getInt("population", pop_);
-        if (pop_override > 3) {
-            pop_ = pop_override;
-        }
+        // population=0 (or unset): the original 1995 Kennedy & Eberhart
+        // paper does not fix one canonical swarm size; the literature
+        // consistently describes a "typically 20 to 50" range. We use the
+        // midpoint, 30, a very commonly used single-value convention.
+        // Previously population=0 silently fell back to [global]
+        // population (default 100) instead of this documented default -- fixed here.
+        int pop_override = mc.getInt("population", 0);
+        pop_ = (pop_override > 3) ? pop_override : 30;
 
         // PSO params
         w_  = mc.getDbl("w",  w_);

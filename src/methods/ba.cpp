@@ -39,7 +39,15 @@ void BA::init(){
     if (!prob_) return;
 
     const int D = prob_->dimension();
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): literature default. Yang's own "typical
+    // parameter values" for the Bat Algorithm (Yang, "A New Metaheuristic
+    // Bat-Inspired Algorithm," NICSO 2010) state: "Population size: n = 20
+    // to 40 (up to 100 if necessary)." We use the upper end of that
+    // typical range (n=40), consistent with the same author's other
+    // algorithms in this codebase (FA=40). Previously population=0
+    // silently fell back to [global] population (default 100) instead of
+    // BA's own default -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 40));
     this->setPopulation(N);
 
     X_.clear(); V_.clear(); FX_.clear(); A_.clear(); R_.clear();

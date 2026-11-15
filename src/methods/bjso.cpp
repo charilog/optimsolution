@@ -1,5 +1,6 @@
 #include "bjso.h"
 #include "init.h"
+#include <cmath>
 
 #include <numeric>
 #include <cctype>
@@ -37,7 +38,14 @@ static inline bool parse_bool_like(const std::string& s, bool fallback)
 
 void BJSO::configure(const MethodConfig& mc)
 {
-    int basePop = population();
+    // population=0 (or unset): jSO derivative -- inherits jSO's own
+    // literature default (Brest et al. 2017: Ninit = 25*sqrt(D)*ln(D))
+    // instead of falling back to [global] population as before.
+    int basePop = 50;
+    if (prob_) {
+        const int D = prob_->dimension();
+        if (D > 0) basePop = (int)std::llround(25.0 * std::sqrt((double)D) * std::log((double)D));
+    }
     if (basePop < 4) basePop = 4;
 
     int pop_override = mc.getInt("population", 0);
@@ -88,6 +96,13 @@ void BJSO::configure(const MethodConfig& mc)
     bj_band_beta_ = mc.getDbl("bj_band_beta", bj_band_beta_);
     if (bj_band_beta_ < 0.0) bj_band_beta_ = 0.0;
     if (bj_band_beta_ > 10.0) bj_band_beta_ = 10.0;
+
+    // The rank band whose mean is used by the bj term (was hard-coded to the
+    // best 2%..10%; now configurable, same defaults).
+    bj_band_from_ = mc.getDbl("bj_band_from", bj_band_from_);
+    bj_band_to_   = mc.getDbl("bj_band_to",   bj_band_to_);
+    bj_band_from_ = std::min(1.0, std::max(0.0, bj_band_from_));
+    bj_band_to_   = std::min(1.0, std::max(bj_band_from_, bj_band_to_));
 }
 
 void BJSO::init()
@@ -97,7 +112,10 @@ void BJSO::init()
     if (D <= 0) return;
 
     if (pop_init_ <= 0) {
-        pop_init_ = population();
+        // population=0 (or unset): jSO derivative -- inherits jSO's own
+        // literature default (Brest et al. 2017: Ninit = 25*sqrt(D)*ln(D))
+        // instead of falling back to [global] population as before.
+        pop_init_ = (int)std::llround(25.0 * std::sqrt((double)D) * std::log((double)D));
         if (pop_init_ < 4) pop_init_ = 50;
         setPopulation(pop_init_);
     }
@@ -257,8 +275,8 @@ void BJSO::one_iteration()
 
     Vec x_band2_10;
     if (bj_enable_) {
-        int band2_begin  = static_cast<int>(std::floor(0.02 * N));
-        int band10_end  = static_cast<int>(std::floor(0.10 * N));
+        int band2_begin  = static_cast<int>(std::floor(bj_band_from_ * N));
+        int band10_end  = static_cast<int>(std::floor(bj_band_to_ * N));
 
         if (band2_begin < 0) band2_begin = 0;
         if (band2_begin >= N) band2_begin = std::max(0, N - 1);

@@ -86,6 +86,29 @@ void NLSHADELBC::configure(const MethodConfig& mc){
     const int flg = mc.getInt("end_local_refine", end_local_refine_ ? 1 : 0);
     end_local_refine_ = parseBool(mc.getStr("end_local_refine", std::to_string(flg)), flg != 0);
     end_local_method_ = toLower(trim(mc.getStr("end_local_method", end_local_method_)));
+
+    // BUGFIX (cfg key names): the [nlshadelbc] section of optimsolution.cfg
+    // uses different key names from the ones read above, so none of them had
+    // any effect. Both spellings are accepted now (cfg names take priority
+    // when present). The cfg values are the same as the compiled defaults.
+    auto has = [&](const char* k){ return mc.kv.count(k) > 0; };
+    if (has("np_min"))              min_pop_          = std::max(4, parseInt(mc.getStr("np_min", ""), min_pop_));
+    if (has("np_init_multiplier"))  np_init_mult_     = parseDouble(mc.getStr("np_init_multiplier", ""), np_init_mult_);
+    if (has("archive_factor"))      archive_ratio_    = std::max(0.0, parseDouble(mc.getStr("archive_factor", ""), archive_ratio_));
+    if (has("archive_probability")) archive_use_prob_ = std::min(1.0, std::max(0.0, parseDouble(mc.getStr("archive_probability", ""), archive_use_prob_)));
+    if (has("pbest_start_rate"))    pbest_start_      = std::min(1.0, std::max(0.0, parseDouble(mc.getStr("pbest_start_rate", ""), pbest_start_)));
+    if (has("pbest_extra_rate"))    pbest_end_        = std::min(1.0, std::max(0.0, pbest_start_ + parseDouble(mc.getStr("pbest_extra_rate", ""), pbest_end_ - pbest_start_)));
+    if (has("rank_pressure_coef"))  rank_pressure_k_  = std::max(0.0, parseDouble(mc.getStr("rank_pressure_coef", ""), rank_pressure_k_));
+    if (has("pf_init"))             p_init_f_         = parseDouble(mc.getStr("pf_init", ""), p_init_f_);
+    if (has("pf_final"))            p_final_f_        = parseDouble(mc.getStr("pf_final", ""), p_final_f_);
+    if (has("pcr_init"))            p_init_cr_        = parseDouble(mc.getStr("pcr_init", ""), p_init_cr_);
+    if (has("pcr_final"))           p_final_cr_       = parseDouble(mc.getStr("pcr_final", ""), p_final_cr_);
+    if (has("generalized_m"))       mean_m_           = parseDouble(mc.getStr("generalized_m", ""), mean_m_);
+    cauchy_scale_ = parseDouble(mc.getStr("cauchy_scale", std::to_string(cauchy_scale_)), cauchy_scale_);
+    normal_scale_ = parseDouble(mc.getStr("normal_scale", std::to_string(normal_scale_)), normal_scale_);
+    if (!(cauchy_scale_ > 0.0)) cauchy_scale_ = 0.1;
+    if (!(normal_scale_ > 0.0)) normal_scale_ = 0.1;
+    if (!(np_init_mult_ > 0.0)) np_init_mult_ = 23.0;
 }
 
 bool NLSHADELBC::inBounds(const Vec& x) const {
@@ -289,7 +312,15 @@ void NLSHADELBC::init(){
     if (pop_override_ >= min_pop_) {
         N = pop_override_;
     } else if (paper_population_default_) {
-        N = std::max(min_pop_, (int)std::llround(23.0 * D));
+        // BUGFIX: this previously reused jSO / NL-SHADE-RSP's initial-population
+        // formula (25*sqrt(D)*ln(D)) by mistake. NL-SHADE-LBC's own actual
+        // default is LINEAR in D: pop_size = pop_size_mult * D with
+        // pop_size_mult = 23. Source: R. Biedrzycki, "Revisiting CEC 2022
+        // ranking: a new ranking method and influence of parameter tuning,"
+        // Swarm and Evolutionary Computation, 2024 (Table 7 / Table A.1),
+        // which reverse-engineered this default directly from the official
+        // NL-SHADE-LBC CEC2022 competition source code.
+        N = std::max(min_pop_, (int)std::llround(np_init_mult_ * (double)D));
     } else if (use_global_population_ && population() >= min_pop_) {
         N = population();
     } else {
@@ -355,7 +386,7 @@ void NLSHADELBC::one_iteration(){
     std::vector<double> cr_pool(NP);
     for (int i = 0; i < NP; ++i) {
         const int mem_idx = uniformIndex(H_);
-        cr_pool[i] = sampleNormalClamped(MCR_[mem_idx], 0.1, 0.0, 1.0);
+        cr_pool[i] = sampleNormalClamped(MCR_[mem_idx], normal_scale_, 0.0, 1.0);
     }
     std::sort(cr_pool.begin(), cr_pool.end());
 
@@ -377,7 +408,7 @@ void NLSHADELBC::one_iteration(){
 
         for (int attempt = 0; attempt < max_resamples_; ++attempt) {
             const int mem_idx_f = uniformIndex(H_);
-            const double F = samplePositiveCauchyClamped(MF_[mem_idx_f], 0.1, 1.0);
+            const double F = samplePositiveCauchyClamped(MF_[mem_idx_f], cauchy_scale_, 1.0);
             lastF = F;
             const int pbest_idx = chooseTopPBestIndex(sorted_idx, pbest_count, i);
             const int r1_idx = chooseUniformPopulationIndex(i, pbest_idx, -1);

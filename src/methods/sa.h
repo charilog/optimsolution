@@ -23,10 +23,23 @@ public:
         end_local_method_ = method;
     }
 
+    // Opt-in to "[global] max_evals = <N>xD" (budget scales with the
+    // problem's dimension) -- see options.h. Every other method is
+    // unaffected by this override existing here.
+    void setGeneralOptions(const GeneralOptions& g) override {
+        Optimizer::setGeneralOptions(g);
+        if (g.max_evals_per_dim > 0 && prob_) {
+            max_evals_ = g.max_evals_per_dim * (long long)prob_->dimension();
+        }
+    }
+
     // Settings from [sa] in the config
     void configure(const MethodConfig& mc) override {
-        int pop_override = mc.getInt("population", pop_);
-        if (pop_override > 0) pop_ = pop_override;
+        // BUGFIX: population = 0 (documented as "single-point") used to keep
+        // the [global] population, i.e. 100 independent chains with 1/100 of
+        // the budget each. 0 now means one chain (classic SA).
+        int pop_override = mc.getInt("population", 0);
+        pop_ = (pop_override > 0) ? pop_override : 1;
 
         T0_        = mc.getDbl("T0",        T0_);
         Tmin_      = mc.getDbl("Tmin",      Tmin_);
@@ -34,12 +47,14 @@ public:
         moves_     = mc.getInt("moves",     moves_);
         step_frac_ = mc.getDbl("step_frac", step_frac_);
         step_sigma_= mc.getDbl("step_sigma",step_sigma_);
+        adapt_step_= mc.getBool("adapt_step", adapt_step_);
 
         // in-run local
         local_method_ = mc.getStr("local_method", local_method_);
         for (auto& c : local_method_) c = (char)std::tolower((unsigned char)c);
         double lr = mc.getDbl("local_rate", local_rate_);
-        if (lr < 0.0) lr = 0.0; if (lr > 1.0) lr = 1.0;
+        if (lr < 0.0) lr = 0.0;
+        if (lr > 1.0) lr = 1.0;
         local_rate_ = lr;
     }
 
@@ -70,6 +85,8 @@ private:
 
     // Proposal: Gaussian around x, either scaled as a fraction of range, or fixed
     double step_frac_{0.05};  // Fraction of (ub-lb) per dimension
+    bool   adapt_step_{true};  // Corana et al. (1987) step adaptation (target acceptance 0.4-0.6)
+    std::vector<double> stepMul_;  // per-agent step multiplier
     double step_sigma_{0.0};  // If >0, it takes precedence as an absolute sigma (in search-space units)
 
     // in-run local

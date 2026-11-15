@@ -130,10 +130,12 @@ public:
 
     // configure(): reads method-specific parameters from [emscso]
     void configure(const MethodConfig& mc) override {
-        int pop_override = mc.getInt("population", pop_);
-        if (pop_override > 3) {
-            pop_ = pop_override;
-        }
+        // population=0 (or unset): internal method, no external published
+        // literature default; N=100 is this codebase's general convention.
+        // Previously population=0 silently fell back to [global]
+        // population (default 100) -- fixed here.
+        int pop_override = mc.getInt("population", 0);
+        pop_ = (pop_override > 3) ? pop_override : 100;
 
         SM_           = mc.getDbl("SM", SM_);
         warning_frac_ = mc.getDbl("warning_frac", warning_frac_);

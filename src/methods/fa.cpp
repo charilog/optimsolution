@@ -23,7 +23,13 @@ void FA::init(){
     if (!prob_) return;
 
     const int D = prob_->dimension();
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): literature default. Yang's own original FA
+    // paper ("Firefly Algorithms for Multimodal Optimization," SAGA 2009 /
+    // arXiv:1003.1466) states: "we have used a fixed population size of
+    // n=40 in all our simulations." Previously population=0 silently fell
+    // back to [global] population (default 100) instead of FA's own
+    // default -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 40));
 
     this->setPopulation(N);
 
@@ -85,9 +91,22 @@ void FA::one_iteration(){
             if (Fold[j] >= Fold[i]) continue;
 
             // Euclidean distance squared
+            // FIX (scale): r^2 used to be measured in raw units. With gamma = 1
+            // in a [-100,100] box r^2 ~ 1e4, so beta = beta0*exp(-gamma r^2) = 0
+            // and fireflies were never attracted -- FA degenerated into a
+            // random walk (sphere-10D: f ~ 7e3 after 20,000 evaluations).
+            // Yang (2010) ties gamma to the problem scale L (gamma ~ 1/L^2);
+            // with scale_gamma = 1 (default) distances are measured in
+            // box-normalised coordinates, which makes gamma scale-free.
             double r2 = 0.0;
             for (int k=0; k<D; ++k){
-                const double d = xi[k] - Xold[j][k];
+                double d = xi[k] - Xold[j][k];
+                if (scale_gamma_) {
+                    const double lo = (k < (int)L.size() ? L[k] : -1.0);
+                    const double hi = (k < (int)U.size() ? U[k] :  1.0);
+                    const double span = std::fabs(hi - lo);
+                    if (std::isfinite(span) && span > 0.0) d /= span;
+                }
                 r2 += d*d;
             }
 

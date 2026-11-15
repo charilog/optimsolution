@@ -11,8 +11,12 @@ void SCA::init(){
 
     const int D = prob_->dimension();
 
-    // If an override exists in [sca], it takes precedence; otherwise [global] population() is used
-    const int N = std::max(3, (pop_override_ >= 3 ? pop_override_ : population()));
+    // population=0 (or unset): literature default. Mirjalili's Sine Cosine
+    // Algorithm paper (2016) follows the same benchmark convention as the
+    // rest of this author's algorithm family (GWO/WOA/MFO): 30 search
+    // agents. Previously population=0 silently fell back to [global]
+    // population (default 100) instead of this documented default -- fixed here.
+    const int N = std::max(3, (pop_override_ >= 3 ? pop_override_ : 30));
 
     // Synchronization is performed here as well for full consistency with the reporter
     this->setPopulation(N);

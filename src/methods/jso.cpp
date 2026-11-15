@@ -8,16 +8,14 @@ namespace optimsolution {
 
 void JSO::configure(const MethodConfig& mc)
 {
-    // Base: current global population (from [global]).
-    int basePop = population();
-    if (basePop < 4) basePop = 4;
-
     // If a population is provided in [jso], it takes precedence.
     int pop_override = mc.getInt("population", 0);
     if (pop_override > 3) {
         pop_init_ = pop_override;
     } else {
-        pop_init_ = basePop;
+        // population=0 (or unset): defer to the literature-recommended
+        // default, resolved once the problem dimension is known in init().
+        pop_init_ = 0;
     }
 
     // The Optimizer is also configured to appear correctly in the summary.
@@ -36,8 +34,10 @@ void JSO::configure(const MethodConfig& mc)
     if (c_mem_ <= 0.0 || c_mem_ > 1.0) c_mem_ = 0.1;
 
     // p_min / p_max.
-    pmin_ = mc.getDbl("p_min", pmin_);
-    pmax_ = mc.getDbl("p_max", pmax_);
+    // "pmin"/"pmax" accepted as aliases (older optimsolution.cfg spelling,
+    // which was silently ignored before).
+    pmin_ = mc.getDbl("p_min", mc.getDbl("pmin", pmin_));
+    pmax_ = mc.getDbl("p_max", mc.getDbl("pmax", pmax_));
     if (pmin_ <= 0.0) pmin_ = 0.05;
     if (pmax_ <= pmin_) pmax_ = std::max(2.0 * pmin_, 0.25);
 
@@ -68,10 +68,11 @@ void JSO::init()
     const int D = prob_->dimension();
     if (D <= 0) return;
 
-    // Safety: if a value is missing for any reason, the Optimizer value is used.
+    // population=0 (or missing): literature-recommended default
+    // (Brest et al. 2017), NPinit = ceil(25*sqrt(D)*ln(D)).
     if (pop_init_ <= 0) {
-        pop_init_ = population();
-        if (pop_init_ < 4) pop_init_ = 50;
+        pop_init_ = static_cast<int>(std::ceil(25.0 * std::sqrt(static_cast<double>(D)) * std::log(static_cast<double>(D))));
+        if (pop_init_ < 4) pop_init_ = 4;
         setPopulation(pop_init_);
     }
 

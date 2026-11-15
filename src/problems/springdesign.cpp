@@ -55,18 +55,11 @@ double SpringDesign::evaluate_core(const Vec& x) {
 }
 
 void SpringDesign::gradient_core(const Vec& x, Vec& g) {
-    g.assign(x.size(), 0.0);
-    const double f0 = evaluate_core(x);
-    Vec xt = x;
-
-    const double rel = 1e-6;
-    for (int i = 0; i < (int)x.size(); ++i) {
-        double h = std::max(1e-6, std::abs(x[i]) * rel);
-        xt[i] = x[i] + h;
-        const double f1 = evaluate_core(xt);
-        g[i] = (f1 - f0) / h;
-        xt[i] = x[i];
-    }
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

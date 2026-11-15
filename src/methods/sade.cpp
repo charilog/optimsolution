@@ -57,7 +57,13 @@ void SaDE::init()
         Optimizer::setPopulation(pop_cfg_);
     }
 
-    pop_init_ = std::max(6, Optimizer::population()); // rand/2 requires >= 6.
+    // population=0 (or unset): literature default. Qin, Huang &
+    // Suganthan's SaDE paper (IEEE TEVC 2009) states "The population
+    // sizes are all set to 50" in their own experiments. Previously
+    // population=0 silently fell back to [global] population (default
+    // 100) instead of this documented default -- fixed here.
+    pop_init_ = std::max(6, (pop_cfg_ > 0 ? pop_cfg_ : 50)); // rand/2 requires >= 6.
+
     setPopulation(pop_init_);
 
     X_.clear();

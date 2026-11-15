@@ -158,6 +158,7 @@
 #include "problems/zdt4.h"
 
 #include "problems/weatherirrigation.h"
+#include "problems/interceptorguidance.h"
 #include "problems/smartportenergy.h"
 #include "problems/datacentercooling.h"// methods
 #include "methods/arq.h"
@@ -181,6 +182,7 @@
 #include "methods/mewoa.h"
 #include "methods/rdex.h"
 #include "methods/rde.h"
+#include "methods/peao.h"
 #include "methods/abc.h" 
 #include "methods/gwo.h" 
 #include "methods/egco.h"
@@ -225,6 +227,7 @@
 #include "methods/ujso.h"
 #include "methods/mjso.h"
 #include "methods/ude.h"
+#include "methods/atde.h"
 #include "methods/sfcde.h"
 #include "methods/awjso.h"
 #include "methods/gahs.h"
@@ -236,13 +239,19 @@
 #include "methods/lracmaes.h"
 #include "methods/lmcmaes.h"
 #include "methods/sparq.h"
+#include "methods/lsrtde.h"
+#include "methods/ide.h"
+#include "methods/imspsodni.h"
+#include "methods/spso2011.h"
+#include "methods/hclpso.h"
+#include "methods/olpso.h"
+#include "methods/glpso.h"
+#include "methods/apso.h"
+#include "methods/dmspso.h"
 
 
 // local methods
-#include "methods/gd.h"
-#include "methods/nm.h"
-#include "methods/lbfgs.h"
-#include "methods/bfgs.h"
+#include "methods/local_methods.h"
 
 // multi-objective methods (optional; additive)
 #include "methods/nsga2.h"
@@ -409,6 +418,7 @@ std::unique_ptr<Problem> makeProblem(const std::string& raw) {
 	if (name == "zdt4") return std::make_unique<optimsolution::ZDT4>();
 	
 	if (name == "weatherirrigation") return std::make_unique<optimsolution::WeatherIrrigation>();	
+	if (name == "interceptorguidance") return std::make_unique<optimsolution::InterceptorGuidance>();
 	if (name == "smartportenergy") return std::make_unique<optimsolution::SmartPortEnergy>();	
 	if (name == "datacentercooling") return std::make_unique<optimsolution::DataCenterCooling>();		
 	    return nullptr;
@@ -431,7 +441,6 @@ std::unique_ptr<Optimizer> makeMethod(const std::string& raw) {
 	if (name == "rmes") return std::unique_ptr<Optimizer>(new RmES());
 	if (name == "mmes") return std::unique_ptr<Optimizer>(new MMES());
 	if (name == "ga")    return std::unique_ptr<Optimizer>(new GA());
-    if (name == "gd")    return std::unique_ptr<Optimizer>(new GD());
 	if (name == "aco")  return std::make_unique<ACO>();	
 	if (name == "acor")  return std::make_unique<ACOR>();
 	if (name == "sa")    return std::make_unique<SA>();
@@ -439,6 +448,7 @@ std::unique_ptr<Optimizer> makeMethod(const std::string& raw) {
 	if (name == "mewoa") return std::make_unique<MEWOA>();
 	if (name == "rdex")  return std::make_unique<RDEx>();
 	if (name == "rde")   return std::make_unique<RDE>();
+	if (name == "peao")  return std::make_unique<PEAO>();
 	if (name == "abc")   return std::make_unique<ABC>();
 	if (name == "gwo")   return std::make_unique<GWO>();
 	if (name == "egco")  return std::make_unique<EGCO>();
@@ -483,6 +493,7 @@ std::unique_ptr<Optimizer> makeMethod(const std::string& raw) {
 	if (name == "ujso") return std::make_unique<optimsolution::UJSO>();	
 	if (name == "mjso") return std::make_unique<optimsolution::MJSO>();
 	if (name == "ude") return std::make_unique<optimsolution::UDE>();
+	if (name == "atde") return std::make_unique<optimsolution::ATDE>();
 	if (name == "sfcde") return std::make_unique<optimsolution::SFCDE>();	
 	if (name == "awjso") return std::make_unique<optimsolution::AWJSO>();	
 	if (name == "gahs") return std::make_unique<optimsolution::GAHS>();
@@ -494,10 +505,20 @@ std::unique_ptr<Optimizer> makeMethod(const std::string& raw) {
 	if (name == "lracmaes") return std::make_unique<optimsolution::LRACMAES>();
 	if (name == "lmcmaes") return std::make_unique<optimsolution::LMCMAES>();
 	if (name == "sparq") return std::make_unique<optimsolution::SPARQ>();	
+	if (name == "lsrtde") return std::make_unique<optimsolution::LSRTDE>();
+	if (name == "ide") return std::make_unique<optimsolution::IDE>();
+	if (name == "imspsodni") return std::make_unique<optimsolution::IMSPSODNI>();
+	if (name == "spso2011") return std::make_unique<optimsolution::SPSO2011>();
+	if (name == "hclpso") return std::make_unique<optimsolution::HCLPSO>();
+	if (name == "olpso") return std::make_unique<optimsolution::OLPSO>();
+	if (name == "glpso") return std::make_unique<optimsolution::GLPSO>();
+	if (name == "apso") return std::make_unique<optimsolution::APSO>();
+	if (name == "dmspso") return std::make_unique<optimsolution::DMSPSO>();
 	
-    if (name == "nm")    return std::unique_ptr<Optimizer>(new NM());
-    if (name == "lbfgs") return std::unique_ptr<Optimizer>(new LBFGS());
-    if (name == "bfgs")  return std::unique_ptr<Optimizer>(new BFGS());
+    // Local methods gd/lbfgs/bfgs/nm/cg/ncg/adam: one name each, a real
+    // stand-alone optimizer in every run mode, and the same name/section as
+    // local_method / end_local_method (see src/methods/local_methods.h).
+    if (LocalMethod::isLocalName(name)) return std::make_unique<LocalMethod>(name);
 	
 
     return nullptr;
@@ -523,15 +544,16 @@ std::vector<std::string> listProblemNames() {
         "michalewicz","ofdmpower","polyphase","portfoliomv","schaffer","schwefel",
         "tandem","tersoffc","tersoffb","tnep","transmissionpricing","vibratingplatform",
         "weierstrass","wirelesscoverage","zakharov","sinusoidal","gascycle",
-        "gkls250","gkls350","gkls2100"};
+        "gkls250","gkls350","gkls2100","interceptorguidance"};
 }
 
 std::vector<std::string> listMethodNames() {
     // NOTE: keep this list in sync with makeMethod().
     return {
-        "sparq","mscso","emscso","turbo","rembo","ccdg2","cso","lmmaes","vkdcmaes","rmes","mmes","lmcmaes","lracmaes","hades","arq3","nlshadelbc","bjso","bwjso","gahs","awjso","sfcde","ude", "mjso","ujso","arq","arq2","de","pso","ga","gd","aco","acor","sa","woa","mewoa","abc","gwo","rdex","rde",
+        "sparq","lsrtde","ide","imspsodni","spso2011","hclpso","olpso","glpso","apso","dmspso","mscso","emscso","turbo","rembo","ccdg2","cso","lmmaes","vkdcmaes","rmes","mmes","lmcmaes","lracmaes","hades","arq3","nlshadelbc","bjso","bwjso","gahs","awjso","sfcde","ude","atde", "mjso","ujso","arq","arq2","de","pso","ga","gd","aco","acor","sa","woa","mewoa","abc","gwo","rdex","rde","peao",
         "egco","gao","ppso","pde","pga","psioa","sioa","sao","psao","bho","tridentde",
-        "mlshaderl","jso","ea4eig","ude3","jde","sade","cmaes","clpso","tlbo","jaya","sca","fa","ba","hs","cs","so","gsa","alo","hho","mfo","mvo","sma","mpa","eo","wca","kh","hba", "nm","lbfgs","bfgs"
+        "mlshaderl","jso","ea4eig","ude3","jde","sade","cmaes","clpso","tlbo","jaya","sca","fa","ba","hs","cs","so","gsa","alo","hho","mfo","mvo","sma","mpa","eo","wca","kh","hba", "nm","lbfgs","bfgs",
+        "cg","ncg","adam"
     };
 }
 
@@ -550,7 +572,7 @@ bool isMultiObjectiveProblem(const std::string& name) {
     // problem has actually been given a numObjectives()>=2 override AND been
     // verified to init() safely at a small probe dimension.
     static const std::vector<std::string> kKnownMultiObjective = {
-        "portfoliomv", "zdt1", "zdt2", "zdt3", "zdt4",
+        "portfoliomv", "zdt1", "zdt2", "zdt3", "zdt4", "interceptorguidance",
     };
     const std::string lname = toLower(name);
     for (const auto& n : kKnownMultiObjective) {

@@ -50,6 +50,7 @@ private:
     int  NR_{10};                    // migration period (iterations)
     int  Np_{1};                     // migrants per migration (top-Np)
     int  stop_after_islands_{-1};    // How many islands must terminate (<=0 => islands_)
+    int         island_stop_mode_{-1};   // island_stop: -1 auto, 0 off, 1 on (see island_stop.h)
 
     // In-run local search (per island, on best_x)
     std::string local_method_{"lbfgs"};

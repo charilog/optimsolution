@@ -58,7 +58,14 @@ void GSA::init(){
     if (!prob_) return;
 
     const int D = prob_->dimension();
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): literature convention. Rashedi et al.'s
+    // 2009 GSA paper does not fix one canonical N, but N=50 is the value
+    // most consistently reused as GSA's "standard" agent count across the
+    // follow-up literature (e.g. multiple independent replication studies
+    // use "population size was set to 50"). Previously population=0
+    // silently fell back to [global] population (default 100) instead of
+    // this documented convention -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 50));
     this->setPopulation(N);
 
     X_.clear(); V_.clear(); FX_.clear();

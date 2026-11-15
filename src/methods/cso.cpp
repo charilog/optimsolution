@@ -6,8 +6,12 @@
 namespace optimsolution {
 
 void CSO::configure(const MethodConfig& mc) {
-    int pop_override = mc.getInt("population", pop_);
-    if (pop_override > 3) pop_ = pop_override;
+    // population=0 (or unset): internal method, no external published
+    // literature default; N=100 is this codebase's general convention.
+    // Previously population=0 silently fell back to [global] population
+    // (default 100) -- fixed here.
+    int pop_override = mc.getInt("population", 0);
+    pop_ = (pop_override > 3) ? pop_override : 100;
 
     phi_cfg_      = mc.getDbl("phi", phi_cfg_);
     phi_default_  = mc.getDbl("phi_default", phi_default_);
@@ -72,8 +76,10 @@ void CSO::init() {
             // competitive updates themselves generate the exploration.
             V_[i][j] = (U01(rng_) * 2.0 - 1.0) * v_init_frac_ * range;
         }
-        FX_[i] = safeEval(X_[i]);
+        // BUGFIX: respect the evaluation budget during initialisation
+        if (prob_->calls() < max_evals_) FX_[i] = safeEval(X_[i]);
     }
+    if (best_x_.empty() && !X_.empty()) best_x_ = X_[0];
 
     phi_ = (phi_cfg_ > 0.0) ? phi_cfg_ : phi_default_;
 

@@ -1,4 +1,5 @@
 #include "pga.h"
+#include "island_stop.h"
 
 #include <thread>
 #include <atomic>
@@ -47,6 +48,7 @@ void PGA::configure(const MethodConfig& mc){
 
     // Global stop with island count.
     stop_after_islands_ = mc.getInt("stop_after_islands", stop_after_islands_);
+    island_stop_mode_   = parseIslandStopMode(mc, island_stop_mode_);
 
     // GA params
     tk_         = std::max(2, mc.getInt("tk", tk_));
@@ -116,15 +118,22 @@ void PGA::mutate_gauss_(Island& S, Vec& child){
 void PGA::init(){
     if (!prob_) return;
 
-    // Final population.
+    // population=0 (or unset): classic GA has no single canonical
+    // population size in the original literature; N=100 is this
+    // codebase's general convention. Previously population=0 silently
+    // fell back to [global] population -- fixed here (numerically the
+    // same as before, now explicit/robust rather than accidental).
     const int global_pop = Optimizer::population();
     const int method_pop = (pop_cfg_ > 0 ? pop_cfg_ : -1);
-    final_population_    = std::max(4, (method_pop > 0 ? method_pop : global_pop));
+    final_population_    = std::max(4, (method_pop > 0 ? method_pop : 100));
+    (void)global_pop;
+
 
     // Updates the base for correct reporting.
     Optimizer::setPopulation(final_population_);
 
     islands_ = std::max(1, islands_);
+    islands_ = effectiveIslands(islands_, final_population_);   // >= 4 members per island
     if (stop_after_islands_ <= 0) stop_after_islands_ = islands_;
     if (stop_after_islands_ > islands_) stop_after_islands_ = islands_;
 
@@ -168,12 +177,13 @@ void PGA::init(){
                 }
             }
             ensureBounds(S.X[i]);
-            S.fX[i] = eval(S.X[i]);
-            if (S.fX[i] < S.gbest_f){ S.gbest_f = S.fX[i]; S.gbest_x = S.X[i]; }
-
-            if (prob_->calls() >= max_evals_) break;
+            // BUGFIX: no 'break' on budget exhaustion here any more -- it left
+            // the remaining islands EMPTY and end()/migration crashed on them.
+            if (prob_->calls() < max_evals_) {
+                S.fX[i] = eval(S.X[i]);
+                if (S.fX[i] < S.gbest_f){ S.gbest_f = S.fX[i]; S.gbest_x = S.X[i]; }
+            }
         }
-        if (prob_->calls() >= max_evals_) break;
 
         last_improve_iter_[k] = 0; // From iteration 0.
     }
@@ -210,6 +220,7 @@ std::vector<int> PGA::best_indices_(const Island& S, int N) const{
 }
 
 int PGA::worst_index_(const Island& S) const{
+    if (S.fX.empty()) return -1;
     int w = 0; double fw = S.fX[0];
     for (int i=1;i<(int)S.fX.size(); ++i){
         if (S.fX[i] > fw){ fw = S.fX[i]; w = i; }
@@ -230,6 +241,7 @@ void PGA::send_best_Np_(int src, const std::vector<int>& dst_ids){
         Island& B = isl_[dst];
         for (int bi : best_idx){
             int w = worst_index_(B);
+            if (w < 0) break;
             B.X[w]  = A.X[bi];
             B.fX[w] = A.fX[bi];
             if (B.fX[w] < B.gbest_f){ B.gbest_f = B.fX[w]; B.gbest_x = B.X[w]; }
@@ -317,6 +329,7 @@ void PGA::one_iteration(){
         snapshot.reserve(final_population_);
         for (const auto& S: isl_) snapshot.insert(snapshot.end(), S.fX.begin(), S.fX.end());
         updateStop(snapshot);
+        stopReached_ = true;   // BUGFIX: actually end the run (it used to spin until max_iters)
         return;
     }
 
@@ -421,10 +434,12 @@ void PGA::one_iteration(){
         propagate_();
     }
 
-    // Per-island stopping (combination of 3 criteria).
+    // Per-island stopping (combination of 3 criteria); only when enabled,
+    // see island_stop.h
     int done_now = 0;
+    const bool island_stop_on = islandStopEnabled(island_stop_mode_, topt_);
     for (int k=0;k<islands_; ++k){
-        if (!island_done_[k]){
+        if (island_stop_on && !island_done_[k]){
             bool done = false;
 
             // 1) Classic stagnation criterion.
@@ -465,6 +480,7 @@ void PGA::one_iteration(){
     snapshot.reserve(final_population_);
     for (const auto& S: isl_) snapshot.insert(snapshot.end(), S.fX.begin(), S.fX.end());
     updateStop(snapshot);
+    if (hard_stop_now_) stopReached_ = true;   // BUGFIX: end the run when the island test fired
 }
 
 // ------------------ end ------------------

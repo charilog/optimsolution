@@ -11,8 +11,13 @@ void CS::init(){
 
     const int D = prob_->dimension();
 
-    // If an override exists in [cs], it takes precedence; otherwise [global] population() is used
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): literature default. Yang & Deb's own
+    // "Cuckoo Search via Levy Flights" paper (2009/arXiv:1003.1594) states:
+    // "we found that n=15 ... are sufficient for most optimization
+    // problems. Therefore, we will use fixed n=15 ... in the rest of the
+    // simulations." Previously population=0 silently fell back to
+    // [global] population (default 100) instead of CS's own default -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 15));
 
     // Synchronize for reporters
     this->setPopulation(N);
@@ -149,6 +154,69 @@ void CS::one_iteration(){
             }
         }
     };
+
+    // ------------------------------------------------------------------
+    // step_mode = best_diff (default): CANONICAL Cuckoo Search, a line-by-line
+    // port of the authors' reference code (X.-S. Yang, cuckoo_search.m,
+    // Yang & Deb 2009/2010):
+    //   get_cuckoos : s' = s + alpha * Levy(beta) .* (s - best) .* N(0,1)
+    //   get_best_nest: nest i is replaced by its OWN new solution if better
+    //   empty_nests : K = (rand > pa) per component,
+    //                 s' = s + rand * (nest[perm1] - nest[perm2]) .* K, greedy
+    // FIX: the previous move used a FIXED step alpha*(ub-lb)*Levy, which can
+    // not refine below that scale (sphere-10D stalled at f ~ 1), compared the
+    // new solution with a RANDOM nest (so near-copies of good nests overwrote
+    // the others and the population collapsed), and replaced the worst nests
+    // in the discovery phase without a greedy test. The old operators are
+    // kept as step_mode = range.
+    // ------------------------------------------------------------------
+    if (step_mode_best_diff_) {
+        std::normal_distribution<double> N01(0.0, 1.0);
+        auto offer = [&](size_t i, Vec& cand){
+            ensureBounds(cand);
+            double fc = eval(cand);
+            maybeLocalImprove(cand, fc);
+            if (fc < FX_[i]) { X_[i] = cand; FX_[i] = fc; }
+            if (fc < best_f_) { best_f_ = fc; best_x_ = cand; }
+        };
+        // get_cuckoos + get_best_nest
+        for (int i=0; i<N; ++i){
+            if (prob_->calls() >= max_evals_) break;
+            Vec step = levyFlightStep(D);
+            Vec u = X_[(size_t)i];
+            for (int j=0; j<D; ++j){
+                const double diff = X_[(size_t)i][(size_t)j] - best_x_[(size_t)j];
+                u[(size_t)j] += alpha_ * step[(size_t)j] * diff * N01(rng_);
+            }
+            offer((size_t)i, u);
+        }
+        // empty_nests + get_best_nest
+        if (pa_ > 0.0 && N >= 2) {
+            std::vector<size_t> p1((size_t)N), p2((size_t)N);
+            std::iota(p1.begin(), p1.end(), 0);
+            std::iota(p2.begin(), p2.end(), 0);
+            std::shuffle(p1.begin(), p1.end(), rng_);
+            std::shuffle(p2.begin(), p2.end(), rng_);
+            const double r = U01(rng_);
+            const std::vector<Vec> nest = X_;     // snapshot, as in the reference
+            for (int i=0; i<N; ++i){
+                if (prob_->calls() >= max_evals_) break;
+                Vec xnew = nest[(size_t)i];
+                bool changed = false;
+                for (int j=0; j<D; ++j){
+                    if (U01(rng_) > pa_) {
+                        xnew[(size_t)j] += r * (nest[p1[(size_t)i]][(size_t)j] - nest[p2[(size_t)i]][(size_t)j]);
+                        changed = true;
+                    }
+                }
+                if (!changed) continue;           // identical point: no evaluation
+                offer((size_t)i, xnew);
+            }
+        }
+        printBest();
+        updateStop(FX_);
+        return;
+    }
 
     // Phase 1: Levy flights
     // Canonical CS move: x_new = x + alpha * Levy(beta), where alpha is typically a small fraction of the domain range.

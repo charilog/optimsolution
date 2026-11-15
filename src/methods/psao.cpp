@@ -1,4 +1,5 @@
 #include "psao.h"
+#include "island_stop.h"
 #include "init.h"
 
 #include <algorithm>
@@ -57,6 +58,7 @@ void PSAO::configure(const MethodConfig& mc){
 
     stop_after_islands_ = mc.getInt("stop_after_islands", stop_after_islands_);
     if (stop_after_islands_ <= 0) stop_after_islands_ = islands_;
+    island_stop_mode_   = parseIslandStopMode(mc, island_stop_mode_);
 
     // Propagation (supports "1toN", "NtoN", etc.)
     {
@@ -85,8 +87,19 @@ void PSAO::configure(const MethodConfig& mc){
 void PSAO::init(){
     if (!prob_) return;
 
+    // population=0 (or unset): literature default, inherited from the base
+    // algorithm. Salawudeen et al.'s Smell Agent Optimization paper (2021)
+    // uses "30 search agents" in its CEC benchmark experiments; this
+    // parallel/subpopulation variant follows the same per-run convention.
+    // Previously population=0 silently fell back to [global] population
+    // (default 100) instead of this documented default -- fixed here.
     if (pop_cfg_ > 0) Optimizer::setPopulation(pop_cfg_);
+    else Optimizer::setPopulation(30);
     final_population_ = std::max(4, Optimizer::population());
+
+
+    islands_ = effectiveIslands(std::max(1, islands_), final_population_);   // >= 4 members per island
+    if (stop_after_islands_ > islands_) stop_after_islands_ = islands_;
 
     isl_.clear();
     isl_.resize(islands_);
@@ -150,15 +163,18 @@ void PSAO::init_island_(Island& I, int subpop){
             if (x[j] > U[j]) x[j] = U[j];
         }
 
+        // BUGFIX: respect the budget for EVERY island (the old inner 'break'
+        // only stopped the current island; each later island still spent
+        // one evaluation past the budget).
+        if (prob_->calls() >= max_evals_) continue;
         I.fX[i] = eval(I.X[i]);
 
         if (I.fX[i] < I.best_f){ I.best_f = I.fX[i]; I.best_x = I.X[i]; }
         if (I.fX[i] > I.worst_f){ I.worst_f = I.fX[i]; I.worst_x = I.X[i]; }
 
         if (I.best_f < best_f_){ best_f_ = I.best_f; best_x_ = I.best_x; }
-
-        if (prob_->calls() >= max_evals_) break;
     }
+    if (I.best_x.empty() && !I.X.empty()) { I.best_x = I.X[0]; I.worst_x = I.X[0]; }
 }
 
 // -------------------------------------------------
@@ -301,6 +317,7 @@ void PSAO::island_random_(Island& I){
 // -------------------------------------------------
 void PSAO::island_update_bss_(Island& I){
     if (I.stopped) return;
+    if (!islandStopEnabled(island_stop_mode_, topt_)) return;   // see island_stop.h
 
     if (!std::isfinite(I.last_best_f)){
         I.last_best_f     = I.best_f;
@@ -515,11 +532,13 @@ void PSAO::collect_snapshot_(std::vector<double>& allf){
 // one_iteration  (Sniff -> Trail -> Rand -> in-run local)
 // -------------------------------------------------
 void PSAO::one_iteration(){
-    if (!prob_ || globally_stopped_) return;
+    if (!prob_ || globally_stopped_) { stopReached_ = true; return; }
 
     if (islands_stopped_.load() >= stop_after_islands_){
         globally_stopped_ = true;
-        max_evals_ = prob_->calls();
+        // BUGFIX: used to set max_evals_ = calls() to force termination, which
+        // also changed the budget REPORTED after the run (maxEvaluations()).
+        stopReached_ = true;
         return;
     }
 
@@ -573,7 +592,9 @@ void PSAO::one_iteration(){
 
     if (islands_stopped_.load() >= stop_after_islands_){
         globally_stopped_ = true;
-        max_evals_ = prob_->calls();
+        // BUGFIX: used to set max_evals_ = calls() to force termination, which
+        // also changed the budget REPORTED after the run (maxEvaluations()).
+        stopReached_ = true;
         return;
     }
 

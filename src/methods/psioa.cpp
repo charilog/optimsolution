@@ -1,4 +1,5 @@
 #include "psioa.h"
+#include "island_stop.h"
 
 #include <thread>
 #include <atomic>
@@ -46,6 +47,7 @@ void PSIOA::configure(const MethodConfig& mc){
     end_local_method_  = mc.getStr("end_local_method", end_local_method_);
 
     stop_after_islands_ = mc.getInt("stop_after_islands", stop_after_islands_);
+    island_stop_mode_   = parseIslandStopMode(mc, island_stop_mode_);
 
     // PSIOA params
     c1_  = mc.getDbl("c1", c1_);
@@ -92,6 +94,7 @@ std::vector<int> PSIOA::best_indices_(const Island& S, int N) const{
 }
 
 int PSIOA::worst_index_(const Island& S) const{
+    if (S.fX.empty()) return -1;
     int w = 0; double fw = S.fX[0];
     for (int i=1;i<(int)S.X.size(); ++i){
         if (S.fX[i] > fw){ fw = S.fX[i]; w = i; }
@@ -110,6 +113,7 @@ void PSIOA::send_best_Np_(int src, const std::vector<int>& dst_ids){
         Island& B = isl_[d];
         for (int bi : best){
             int w = worst_index_(B);
+            if (w < 0) break;
             B.X[w]  = A.X[bi];
             B.fX[w] = A.fX[bi];
             if (B.fX[w] < B.gbest_f){ B.gbest_f = B.fX[w]; B.gbest_x = B.X[w]; }
@@ -177,14 +181,18 @@ Vec PSIOA::make_spore_(Island& S, const Vec& xi) const {
     std::uniform_real_distribution<double> U01(0.0,1.0);
     auto Uni   = [&](double a,double b){ return a + (b-a)*U01(S.rng); };
 
+    // FIX (logic): "pzero" set the coordinate to exactly 0, i.e. a bias
+    // towards the ORIGIN of the coordinate system (excellent on unshifted test
+    // functions whose optimum is at 0, wrong everywhere else). It is now a
+    // uniform re-sampling of the coordinate inside [lb, ub].
     Vec s = xi; s.assign(D, 0.0);
     for (int j=0;j<D;++j){
         const double u1 = Uni(-1.0, 1.0);
         const double u2 = Uni(-S.R, S.R);
         // si = xi + R*u(-1,1)*c1 + c2*(xbest - xi + u(-R,R))
         s[j] = xi[j] + S.R * u1 * c1_ + c2_ * (S.gbest_x[j] - xi[j] + u2);
-        // zero-reset with prob p_zero per dimension
-        if (U01(S.rng) < p_zero_) s[j] = 0.0;
+        // re-sampling of the coordinate with prob p_zero per dimension
+        if (U01(S.rng) < p_zero_) s[j] = Uni(L[j], U[j]);
         // clamp
         if (s[j] < L[j]) s[j] = L[j];
         if (s[j] > U[j]) s[j] = U[j];
@@ -260,11 +268,15 @@ bool PSIOA::stopping_hold_(Island& S, double fmin_k){
 void PSIOA::init(){
     if (!prob_) return;
 
-    const int global_pop = Optimizer::population();
-    final_population_ = std::max(4, (pop_cfg_>0 ? pop_cfg_ : global_pop));
+    // population=0 (or unset): internal method, no external published
+    // literature default; N=100 is this codebase's general convention.
+    // Previously population=0 silently fell back to [global] population -- fixed here.
+    final_population_ = std::max(4, (pop_cfg_>0 ? pop_cfg_ : 100));
+
     Optimizer::setPopulation(final_population_);
 
     islands_ = std::max(1, islands_);
+    islands_ = effectiveIslands(islands_, final_population_);   // >= 4 members per island
     if (stop_after_islands_ <= 0) stop_after_islands_ = islands_;
     if (stop_after_islands_ > islands_) stop_after_islands_ = islands_;
 
@@ -290,6 +302,8 @@ void PSIOA::init(){
         S.fX.assign(mk, std::numeric_limits<double>::infinity());
         S.gbest_x.assign(D, 0.0);
         S.gbest_f = std::numeric_limits<double>::infinity();
+        S.inc_x.assign(D, 0.0);
+        S.inc_f = std::numeric_limits<double>::infinity();
         S.delta_hist.clear();
         S.rng.seed( 0x9E3779B97F4A7C15ULL ^ (uint64_t)k ^ (uint64_t)rng_() );
 
@@ -302,11 +316,14 @@ void PSIOA::init(){
         for (int i=0;i<mk && cursor<(int)allX.size(); ++i, ++cursor){
             S.X[i] = allX[cursor];
             ensureBounds(S.X[i]);
-            S.fX[i] = eval(S.X[i]);
-            if (S.fX[i] < S.gbest_f){ S.gbest_f = S.fX[i]; S.gbest_x = S.X[i]; }
-            if (prob_->calls() >= max_evals_) break;
+            // BUGFIX: no 'break' on budget exhaustion -- it left the remaining
+            // islands EMPTY and end()/migration crashed on them.
+            if (prob_->calls() < max_evals_) {
+                S.fX[i] = eval(S.X[i]);
+                if (S.fX[i] < S.gbest_f){ S.gbest_f = S.fX[i]; S.gbest_x = S.X[i]; }
+                if (S.fX[i] < S.inc_f)  { S.inc_f = S.fX[i];  S.inc_x = S.X[i]; }
+            }
         }
-        if (prob_->calls() >= max_evals_) break;
 
         last_improve_iter_[k] = 0;
     }
@@ -337,6 +354,7 @@ void PSIOA::one_iteration(){
         snap.reserve(final_population_);
         for (const auto& S: isl_) snap.insert(snap.end(), S.fX.begin(), S.fX.end());
         updateStop(snap);
+        stopReached_ = true;   // BUGFIX: actually end the run (it used to spin until max_iters)
         return;
     }
 
@@ -368,6 +386,13 @@ void PSIOA::one_iteration(){
             if (U01(S.rng) < S.p_spor){
                 Vec sp = make_spore_(S, S.X[i]);
                 double fs = eval(sp);
+                // BUGFIX (lost best): an evaluated spore that does not germinate
+                // (prob 1-p_germ) or loses the crowding test used to be
+                // forgotten even when it was the best point ever evaluated, so
+                // the reported best could be worse than an evaluated point. It
+                // is now kept as the island incumbent (inc_*), which does NOT
+                // influence the search (gbest_x does, so it is left unchanged).
+                if (fs < S.inc_f) { S.inc_f = fs; S.inc_x = sp; }
 
                 // germination: crowding replacement with prob p_germ
                 if (U01(S.rng) < S.p_germ){
@@ -386,6 +411,7 @@ void PSIOA::one_iteration(){
                                 auto [xloc, floc] = localSearch(local_method_, S.X[m]);
                                 if (floc < S.fX[m]) { S.X[m] = xloc; S.fX[m] = floc; }
                                 if (floc < S.gbest_f) { S.gbest_x = xloc; S.gbest_f = floc; }
+                                if (floc < S.inc_f)   { S.inc_x = xloc;   S.inc_f = floc; }
                             }
                         }
                     }
@@ -403,6 +429,7 @@ void PSIOA::one_iteration(){
     for (int k=0;k<islands_; ++k){
         const auto& S = isl_[k];
         if (S.gbest_f < global_best_f_) { global_best_f_ = S.gbest_f; global_best_x_ = S.gbest_x; }
+        if (S.inc_f   < global_best_f_) { global_best_f_ = S.inc_f;   global_best_x_ = S.inc_x; }
         if (S.gbest_f < gbest_prev[k])   last_improve_iter_[k] = K_;
     }
     if (global_best_f_ < best_f_) { best_f_ = global_best_f_; best_x_ = global_best_x_; }
@@ -410,10 +437,12 @@ void PSIOA::one_iteration(){
     // Migration every NR steps
     if (K_>0 && (K_%NR_==0)) propagate_();
 
-    // per-island stop (NM stationarity + plateau + target)
+    // per-island stop (NM stationarity + plateau + target); only when
+    // enabled, see island_stop.h
     int done_now = 0;
+    const bool island_stop_on = islandStopEnabled(island_stop_mode_, topt_);
     for (int k=0;k<islands_; ++k){
-        if (!island_done_[k]){
+        if (island_stop_on && !island_done_[k]){
             bool done = false;
             if (stopping_hold_(isl_[k], isl_[k].gbest_f)) done = true;
             if (!done && island_plateau_iters_>0 && (K_ - last_improve_iter_[k] >= island_plateau_iters_)) done = true;
@@ -435,6 +464,7 @@ void PSIOA::one_iteration(){
     std::vector<double> snap; snap.reserve(final_population_);
     for (const auto& S: isl_) snap.insert(snap.end(), S.fX.begin(), S.fX.end());
     updateStop(snap);
+    if (hard_stop_now_) stopReached_ = true;   // BUGFIX: end the run when the island test fired
 }
 
 // ------------------ end ------------------

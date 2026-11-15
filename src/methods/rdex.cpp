@@ -4,287 +4,317 @@
 
 namespace optimsolution {
 
-int RDEx::pickRandomExcept(int exclude1, int exclude2) {
-    const int N = static_cast<int>(X_.size());
-    if (N <= 1) return 0;
-    std::uniform_int_distribution<int> ui(0, N - 1);
-    int r = ui(rng_);
-    int guard = 0;
-    while ((r == exclude1 || r == exclude2) && guard < 100) {
-        r = ui(rng_);
-        ++guard;
-    }
-    return r;
+// Line references "RDEx.cpp:NNN" point to the authors'
+// RDEx_SOP/code/rdex-sop/RDEx.cpp (v1.0.0).
+
+namespace {
+
+struct Trio { const Vec* best; const Vec* mid; const Vec* worst; };
+// Ordering of three donors with the tie-breaking of the authors' EB_order() (RDEx.cpp:310-349).
+Trio orderTrio(const Vec* p1, double f1, const Vec* p3, double f3, const Vec* p4, double f4) {
+    if (f1 <= f3 && f1 <= f4) return (f3 <= f4) ? Trio{p1, p3, p4} : Trio{p1, p4, p3};
+    if (f3 <= f1 && f3 <= f4) return (f1 <= f4) ? Trio{p3, p1, p4} : Trio{p3, p4, p1};
+    if (f4 <= f1 && f4 <= f3) return (f1 <= f3) ? Trio{p4, p1, p3} : Trio{p4, p3, p1};
+    return Trio{p1, p3, p4}; // only reachable with NaN fitness values
 }
 
-double RDEx::sampleTruncGaussian(double mean, double sigma, double lo, double hi) {
-    std::normal_distribution<double> nd(mean, sigma > 0.0 ? sigma : 1e-6);
-    for (int t = 0; t < 25; ++t) {
-        const double v = nd(rng_);
-        if (v >= lo && v <= hi) return v;
-    }
-    return std::min(std::max(mean, lo), hi);
+std::vector<int> ascendingOrder(const std::vector<double>& f, int n) {
+    std::vector<int> idx(n);
+    std::iota(idx.begin(), idx.end(), 0);
+    std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) { return f[a] < f[b]; });
+    return idx;
 }
 
-double RDEx::sampleCauchyParam(double loc, double scale, double lo, double hi) {
-    std::cauchy_distribution<double> cd(loc, scale > 0.0 ? scale : 1e-6);
-    for (int t = 0; t < 25; ++t) {
-        const double v = cd(rng_);
-        if (v >= lo && v <= hi) return v;
+} // namespace
+
+double RDEx::progress() const {
+    return (max_evals_ > 0) ? double(prob_->calls()) / double(max_evals_) : 1.0;
+}
+
+double RDEx::meanWL(const std::vector<double>& v, const std::vector<double>& w) const {
+    // RDEx.cpp:259-276; all-zero weights give 0/0 there, i.e. the 1.0 fallback.
+    double sumW = 0.0;
+    for (double x : w) sumW += x;
+    if (!(sumW > 0.0)) return 1.0;
+    double sumSq = 0.0, sum = 0.0;
+    for (size_t t = 0; t < v.size(); ++t) {
+        const double wt = w[t] / sumW;
+        sumSq += wt * v[t] * v[t];
+        sum   += wt * v[t];
     }
-    return std::min(std::max(loc, lo), hi);
+    return (std::fabs(sum) > 1e-8) ? sumSq / sum : 1.0;
 }
 
 void RDEx::init() {
     if (!prob_) return;
     const int D = prob_->dimension();
 
-    pop_ = N0_; // front size N^(0) <- N0 (Alg. 1, line 1)
+    N0_ = (fixed_population_ > 3)
+        ? fixed_population_
+        : std::max(Nmin_ + 1, static_cast<int>(Nmax_mult_ * double(D))); // RDEx.cpp:897,905
+    pop_ = N0_;
 
     Initializer initSampler;
     initSampler.configure(initopt_);
-    X_ = initSampler.samplePopulation(*prob_, rng_, std::max(pop_, 2));
-    FX_.assign(X_.size(), std::numeric_limits<double>::infinity());
+    XC_ = initSampler.samplePopulation(*prob_, rng_, N0_);
+    FC_.assign(XC_.size(), std::numeric_limits<double>::infinity());
 
     best_f_ = std::numeric_limits<double>::infinity();
     best_x_.assign(D, 0.0);
 
-    for (size_t i = 0; i < X_.size(); ++i) {
-        const double f = eval(X_[i]);
-        FX_[i] = f;
-        if (f < best_f_) { best_f_ = f; best_x_ = X_[i]; }
+    for (size_t i = 0; i < XC_.size(); ++i) {
         if (prob_->calls() >= max_evals_) break;
+        const double f = eval(XC_[i]);
+        FC_[i] = f;
+        if (f < best_f_) { best_f_ = f; best_x_ = XC_[i]; }
     }
 
-    // Memories initialised to 0.5 (standard SHADE/L-SHADE convention; Alg. 1, line 2).
-    mem_F_.assign(H_, 0.5);
-    mem_CR_.assign(H_, 0.5);
-    mem_pos_ = 0;
-    rho_eb_  = rho_eb0_;
-    sr_prev_ = 0.0;
+    // Front = current population sorted by fitness (RDEx.cpp:432-449).
+    const std::vector<int> idx = ascendingOrder(FC_, N0_);
+    XF_.resize(N0_);
+    FF_.resize(N0_);
+    for (int i = 0; i < N0_; ++i) { XF_[i] = XC_[idx[i]]; FF_[i] = FC_[idx[i]]; }
+    fit_mass_ = FF_;
 
-    updateStop(FX_);
+    mem_F_.assign(H_, mem0_);   // RDEx.cpp:240-243
+    mem_CR_.assign(H_, mem0_);
+    mem_pos_  = 0;
+    rho_eb_   = rho_eb0_;
+    sr_       = sr0_;
+    pf_index_ = 0;
+    fit_temp_.assign(N0_, std::numeric_limits<double>::infinity());
+    eb_flag_.assign(N0_, 0);
+
+    updateStop(FF_);
     printBest();
 }
 
 void RDEx::one_iteration() {
     if (!prob_) return;
+    if (prob_->calls() >= max_evals_) return;
     const int D = prob_->dimension();
     const auto& L = prob_->lb();
     const auto& U = prob_->ub();
-    const int N = static_cast<int>(X_.size());
-    if (N < 4) return;
+    const int N = static_cast<int>(XF_.size());
+    if (N < 4 || static_cast<int>(XC_.size()) < N) return;
 
     std::uniform_real_distribution<double> U01(0.0, 1.0);
+    std::uniform_int_distribution<int> UN(0, N - 1);
     std::uniform_int_distribution<int> UH(0, H_ - 1);
+    std::uniform_int_distribution<int> UHp1(0, H_);    // {0..H}: H = the fixed 0.9 entry
     std::uniform_int_distribution<int> Ujrand(0, D - 1);
+    std::normal_distribution<double> N01(0.0, 1.0);
+    std::cauchy_distribution<double> C01(0.0, 1.0);
 
-    // Selection window size p^(g) (Eq. 3).
-    int p_window = static_cast<int>(std::floor(double(N) * xi_ * std::exp(-k_ * sr_prev_)));
-    if (p_window < 2) p_window = 2;
-    if (p_window > N) p_window = N;
-    std::uniform_int_distribution<int> Uwin(0, p_window - 1);
+    auto inBox = [&](double val, int j) {
+        if (!std::isfinite(val) || val < L[j] || val > U[j]) {
+            std::uniform_real_distribution<double> ud(L[j], U[j]);
+            return ud(rng_);
+        }
+        return val;
+    };
 
-    // Fitness-ascending order of the current front, needed for pbest/EB donors.
-    std::vector<int> order(N);
-    for (int i = 0; i < N; ++i) order[i] = i;
-    std::sort(order.begin(), order.end(), [&](int a, int b) { return FX_[a] < FX_[b]; });
+    // ---- per-generation rankings and selectors (RDEx.cpp:453-493) ----
+    const double meanF = 0.4 + 0.25 * std::tanh(5.0 * sr_);
+    const double prog0 = progress();
+    const std::vector<int> idxC = ascendingOrder(FC_, N); // current population (first N)
+    const std::vector<int> idxF = ascendingOrder(FF_, N); // front
 
-    // Mean of the standard-branch F distribution, driven by the last success rate (Eq. 7).
-    const double mu_F = 0.4 + 0.25 * std::tanh(5.0 * sr_prev_);
-    const double progress = (max_evals_ > 0)
-        ? double(prob_->calls()) / double(max_evals_)
-        : 1.0;
-
-    std::vector<Vec>    Xnew(N);
-    std::vector<double> Fnew(N, std::numeric_limits<double>::infinity());
-
-    // Bookkeeping for the memory update (Eq. 8-9) and the hybrid-rate update (Eq. 6).
-    std::vector<double> succ_F, succ_CR, succ_dF;
-    double sumDf_eb = 0.0, sumDf_std = 0.0;
-    int n_success = 0;
-
+    std::vector<double> wExp(N), wRsp(N);
     for (int i = 0; i < N; ++i) {
-        const bool useEB = (U01(rng_) < rho_eb_);
+        wExp[i] = std::exp(-double(i) / double(N) * 3.0);
+        wRsp[i] = 3.0 * double(N - i);
+    }
+    std::discrete_distribution<int> selFrontExp(wExp.begin(), wExp.end());
+    std::discrete_distribution<int> selRspAll(wRsp.begin(), wRsp.end());
 
-        // ---- sample (F_i, CR_i) from the success-history memories ----
-        double F_i, CR_i;
-        if (!useEB) {
-            F_i = sampleTruncGaussian(mu_F, sigma_F_, 0.0, 1.0);
-            const int r = UH(rng_);
-            CR_i = sampleTruncGaussian(mem_CR_[r], sigma_cr_, 0.0, 1.0);
-        } else {
-            const int r = UH(rng_);
-            double locF = mem_F_[r];
-            if (!(locF > 0.0)) locF = 0.5; // fallback reference value (report, Sec. II-E)
-            F_i = sampleCauchyParam(locF, 0.1, 0.0, 1.0);
-            // Early-stage lower bound on CR to encourage larger crossovers (report, Sec. II-E).
-            const double crFloor = (progress < 0.25) ? 0.5 : 0.0;
-            const double crRaw = sampleTruncGaussian(mem_CR_[r], sigma_cr_, 0.0, 1.0);
-            CR_i = std::max(crRaw, crFloor);
-        }
+    int psizeval = std::max(2, static_cast<int>(double(N) * xi_ * std::exp(-sr_ * k_)));
+    if (psizeval > N) psizeval = N;
+    std::uniform_int_distribution<int> Upbest(0, psizeval - 1);
 
-        // ---- donor vector v_i ----
-        Vec v(D);
-        if (!useEB) {
-            // Standard branch: current-to-pbest/1 + extra difference (Eq. 2).
-            const int pbestIdx = order[Uwin(rng_)];
-            const int r1 = pickRandomExcept(i);
-            const int r2 = pickRandomExcept(i, r1);
-            for (int j = 0; j < D; ++j) {
-                v[j] = X_[i][j]
-                     + F_i * (X_[pbestIdx][j] - X_[i][j])
-                     + F_i * (X_[r1][j] - X_[r2][j]);
-            }
-        } else {
-            // EB branch: ordered best/mid/worst donor set (Eq. 5).
-            const int aIdx = order[Uwin(rng_)];
-            int b = pickRandomExcept(i, aIdx);
-            int c = pickRandomExcept(i, aIdx);
-            int guard = 0;
-            while (c == b && guard++ < 20) c = pickRandomExcept(i, aIdx);
-            int trio[3] = { aIdx, b, c };
-            std::sort(trio, trio + 3, [&](int x, int y) { return FX_[x] < FX_[y]; });
-            const int bestI = trio[0], midI = trio[1], worstI = trio[2];
-            for (int j = 0; j < D; ++j) {
-                v[j] = X_[i][j]
-                     + F_i * (X_[bestI][j] - X_[i][j])
-                     + F_i * (X_[midI][j] - X_[worstI][j]);
-            }
-        }
+    int psizeval2 = static_cast<int>(double(N) * eb_pfrac_ * (1.0 - 0.5 * prog0));
+    if (psizeval2 <= 1) psizeval2 = 2;
+    if (psizeval2 > N)  psizeval2 = N;
+    std::discrete_distribution<int> selRspTop(wRsp.begin(), wRsp.begin() + psizeval2);
 
-        // ---- binomial crossover + bound repair by resampling (Eq. 4) ----
-        Vec u = X_[i];
-        std::vector<bool> fromDonor(D, false);
+    std::vector<double> succ_F, succ_CR, succ_dF;
+
+    for (int it = 0; it < N; ++it) {
+        const int t    = UN(rng_);   // target drawn with replacement (RDEx.cpp:497)
+        const int mci  = UH(rng_);
+        const int mci2 = UHp1(rng_);
+
+        // Standard-branch donors (RDEx.cpp:500-508). As in the original, the
+        // exclusion tests compare indices of the two populations directly.
+        int prand = idxC[Upbest(rng_)];
+        for (int g = 0; prand == t && g < 1000; ++g) prand = idxC[Upbest(rng_)];
+        int r1 = idxF[selFrontExp(rng_)];
+        for (int g = 0; r1 == prand && g < 1000; ++g) r1 = idxF[selFrontExp(rng_)];
+        int r2 = idxC[UN(rng_)];
+        for (int g = 0; (r2 == prand || r2 == r1) && g < 1000; ++g) r2 = idxC[UN(rng_)];
+
+        double F_i = meanF + sigma_F_ * N01(rng_);
+        for (int g = 0; (F_i < 0.0 || F_i > 1.0) && g < 1000; ++g) F_i = meanF + sigma_F_ * N01(rng_);
+        F_i = std::min(std::max(F_i, 0.0), 1.0);
+        double CR_i = mem_CR_[mci] + sigma_cr_ * N01(rng_);
+        CR_i = std::min(std::max(CR_i, 0.0), 1.0);
         const int jrand = Ujrand(rng_);
-        for (int j = 0; j < D; ++j) {
-            if (U01(rng_) < CR_i || j == jrand) {
-                double val = v[j];
-                if (!std::isfinite(val) || val < L[j] || val > U[j]) {
-                    std::uniform_real_distribution<double> ud(L[j], U[j]);
-                    val = ud(rng_);
-                }
-                u[j] = val;
-                fromDonor[j] = true;
-            }
-        }
 
-        // ---- Cauchy local perturbation on ONE non-crossover dimension (Eq. 10) ----
-        // BUGFIX: applying the p_r gate independently to every non-crossover
-        // dimension makes the expected number of perturbed dimensions grow
-        // linearly with D (e.g. ~0.3 dims at D=6 but ~10+ dims at D=200), so
-        // the heavy-tailed Cauchy noise becomes an increasingly disruptive
-        // force exactly as D grows -- this reproduced the observed pattern of
-        // RDEx performing fine on low-D problems but catastrophically on
-        // high-D ones. The standard iLSHADE-RSP-style local perturbation
-        // instead targets a single randomly chosen non-crossover dimension
-        // per individual, so its disruptiveness is D-independent by design.
-        if (U01(rng_) < p_r_) {
-            std::vector<int> nonCrossoverDims;
-            nonCrossoverDims.reserve(D);
+        // EB branch only after eb_start of the budget (RDEx.cpp:517-521; the
+        // factor (1 - NFEval/MaxFEval) there is an integer division, i.e. 1).
+        const double prog = progress();
+        const bool useEB = (prog >= eb_start_) && (U01(rng_) < rho_eb_);
+
+        Vec u(D);
+        double actualCr = 0.0;
+        const bool perturbation = (U01(rng_) < p_r_);
+        const double sigScale = sigma_loc_;
+
+        if (useEB) {
+            eb_flag_[t] = 1;
+            prand = idxC[selRspTop(rng_)];
+            for (int g = 0; prand == t && g < 1000; ++g) prand = idxC[selRspTop(rng_)];
+            r1 = idxF[selRspAll(rng_)];
+            for (int g = 0; r1 == prand && g < 1000; ++g) r1 = idxF[selRspAll(rng_)];
+            r2 = idxC[selRspAll(rng_)];
+            for (int g = 0; (r2 == prand || r2 == r1) && g < 1000; ++g) r2 = idxC[selRspAll(rng_)];
+            const Trio tr = orderTrio(&XC_[prand], FC_[prand], &XF_[r1], FF_[r1], &XC_[r2], FC_[r2]);
+
+            // F and Cr from the H+1 memory choices (RDEx.cpp:534-561).
+            const double locF = (mci2 < H_) ? mem_F_[mci2] : 0.9;
+            F_i = locF + 0.1 * C01(rng_);
+            for (int g = 0; F_i < 0.0 && g < 1000; ++g) F_i = locF + 0.1 * C01(rng_);
+            if (F_i < 0.0) F_i = 0.0;
+            if (F_i > 1.0) F_i = 1.0;
+            if (prog < 0.6 && F_i > 0.7) F_i = 0.7;   // kept from the original; inactive when eb_start >= 0.6
+            if (mci2 < H_) CR_i = (mem_CR_[mci2] < 0.0) ? 0.0 : mem_CR_[mci2] + sigma_cr_eb_ * N01(rng_);
+            else           CR_i = 0.9 + sigma_cr_eb_ * N01(rng_);
+            CR_i = std::min(std::max(CR_i, 0.0), 1.0);
+            if (prog < 0.25) CR_i = std::max(CR_i, 0.7); // kept from the original; inactive when eb_start >= 0.5
+            if (prog < 0.5)  CR_i = std::max(CR_i, 0.6);
+
+            const Vec& xt = XF_[t];
             for (int j = 0; j < D; ++j) {
-                if (!fromDonor[j]) nonCrossoverDims.push_back(j);
-            }
-            if (!nonCrossoverDims.empty()) {
-                std::uniform_int_distribution<int> Ud(0, static_cast<int>(nonCrossoverDims.size()) - 1);
-                const int j = nonCrossoverDims[Ud(rng_)];
-                std::cauchy_distribution<double> cd(u[j], sigma_loc_ * (U[j] - L[j]));
-                double val = cd(rng_);
-                if (!std::isfinite(val) || val < L[j] || val > U[j]) {
-                    std::uniform_real_distribution<double> ud(L[j], U[j]);
-                    val = ud(rng_);
+                if (U01(rng_) < CR_i || j == jrand) {
+                    u[j] = inBox(xt[j] + F_i * ((*tr.best)[j] - xt[j]) + F_i * ((*tr.mid)[j] - (*tr.worst)[j]), j);
+                    actualCr += 1.0;
+                } else {
+                    u[j] = perturbation ? inBox(xt[j] + sigScale * (U[j] - L[j]) * C01(rng_), j) : xt[j];
                 }
-                u[j] = val;
-            }
-        }
-
-        double fu = eval(u);
-
-        // ---- greedy selection ----
-        if (fu <= FX_[i]) {
-            const double df = FX_[i] - fu;
-            Xnew[i] = std::move(u);
-            Fnew[i] = fu;
-            if (df > 0.0) { // strict improvements feed the adaptation signals
-                succ_F.push_back(F_i);
-                succ_CR.push_back(CR_i);
-                succ_dF.push_back(df);
-                if (useEB) sumDf_eb += df; else sumDf_std += df;
-                ++n_success;
             }
         } else {
-            Xnew[i] = X_[i];
-            Fnew[i] = FX_[i];
+            eb_flag_[t] = 0;
+            const Vec& xt = XF_[t];
+            for (int j = 0; j < D; ++j) {
+                if (U01(rng_) < CR_i || j == jrand) {
+                    u[j] = inBox(xt[j] + F_i * (XC_[prand][j] - xt[j]) + F_i * (XF_[r1][j] - XC_[r2][j]), j);
+                    actualCr += 1.0;
+                } else {
+                    u[j] = perturbation ? inBox(xt[j] + sigScale * (U[j] - L[j]) * C01(rng_), j) : xt[j];
+                }
+            }
+        }
+        actualCr /= double(D);
+
+        const double fu = eval(u);
+        fit_temp_[t] = fu;
+        if (fu < best_f_) { best_f_ = fu; best_x_ = u; }
+
+        // Selection against the target; the trial goes to slot pf_index_ of
+        // the front and is appended to the current population (RDEx.cpp:614-629).
+        if (fu <= FF_[t]) {
+            XC_.push_back(u);
+            FC_.push_back(fu);
+            // After a front reduction pf_index_ can point one past the active
+            // front; the original then writes into an inactive slot, i.e. the
+            // trial does not enter the front (it is still in the current population).
+            if (pf_index_ < N) {
+                XF_[pf_index_] = std::move(u);
+                FF_[pf_index_] = fu;
+            }
+            succ_CR.push_back(actualCr);
+            succ_F.push_back(F_i);
+            // As in the original, |FF[t] - fu| is read after the write above
+            // (it is 0 when pf_index_ == t).
+            succ_dF.push_back(std::fabs(FF_[t] - fu));
+            pf_index_ = (pf_index_ + 1) % N;
         }
 
         if (local_rate_ > 0.0 && local_method_ != "none" && !local_method_.empty()
-            && U01(rng_) < local_rate_) {
-            auto [xl, fl] = localSearch(local_method_, Xnew[i]);
-            if (fl < Fnew[i]) { Xnew[i] = std::move(xl); Fnew[i] = fl; }
+            && U01(rng_) < local_rate_ && prob_->calls() < max_evals_) {
+            auto [xl, fl] = localSearch(local_method_, XF_[t]);
+            if (fl < FF_[t]) { XF_[t] = std::move(xl); FF_[t] = fl; }
+            if (FF_[t] < best_f_) { best_f_ = FF_[t]; best_x_ = XF_[t]; }
         }
 
-        if (Fnew[i] < best_f_) { best_f_ = Fnew[i]; best_x_ = Xnew[i]; }
-
-        if (prob_->calls() >= max_evals_) {
-            for (int k = i + 1; k < N; ++k) { Xnew[k] = X_[k]; Fnew[k] = FX_[k]; }
-            break;
-        }
+        if (prob_->calls() >= max_evals_) break;
     }
+    const int S = static_cast<int>(succ_dF.size());
 
-    X_  = std::move(Xnew);
-    FX_ = std::move(Fnew);
-
-    // Success rate of this generation, used by mu_F and p^(g+1) next generation.
-    sr_prev_ = (N > 0) ? double(n_success) / double(N) : 0.0;
-
-    // ---- adaptive hybrid rate rho_EB (Eq. 6) ----
-    if (sumDf_eb + sumDf_std > 0.0) {
-        rho_eb_ = sumDf_eb / (sumDf_eb + sumDf_std);
-        // Keep both branches alive (avoid the hybrid rate collapsing to 0 or 1).
-        rho_eb_ = std::min(std::max(rho_eb_, 0.05), 0.95);
-    }
-
-    // ---- success-history memory update, weighted Lehmer mean (Eq. 8-9) ----
-    if (n_success > 0) {
-        double sumW = 0.0;
-        for (double df : succ_dF) sumW += df;
-        if (sumW > 0.0) {
-            double numF = 0.0, denF = 0.0, numCR = 0.0, denCR = 0.0;
-            for (int t = 0; t < n_success; ++t) {
-                const double w = succ_dF[t] / sumW;
-                numF  += w * succ_F[t]  * succ_F[t];
-                denF  += w * succ_F[t];
-                numCR += w * succ_CR[t] * succ_CR[t];
-                denCR += w * succ_CR[t];
+    // ---- EB rate update (RDEx.cpp:386-416, 632-638) ----
+    {
+        double sumEB = 0.0, sumStd = 0.0;
+        for (int c = 0; c < N; ++c) {
+            if (fit_temp_[c] <= fit_mass_[c]) {
+                if (eb_flag_[c]) sumEB += fit_mass_[c] - fit_temp_[c];
+                else             sumStd += fit_mass_[c] - fit_temp_[c];
             }
-            if (denF > 1e-12)  mem_F_[mem_pos_]  = numF / denF;
-            if (denCR > 1e-12) mem_CR_[mem_pos_] = 0.5 * (mem_CR_[mem_pos_] + numCR / denCR);
-            mem_pos_ = (mem_pos_ + 1) % H_;
         }
+        if (sumEB != 0.0 && sumStd != 0.0) {
+            rho_eb_ = sumEB / (sumEB + sumStd);
+            rho_eb_ = std::min(std::max(rho_eb_, 0.0), 1.0);
+        } else {
+            rho_eb_ = rho_eb0_;
+        }
+        for (int c = 0; c < N; ++c) fit_mass_[c] = FF_[c];
     }
 
-    // ---- linear population size reduction (Eq. 11) ----
-    const long long nfe = prob_->calls();
-    const long long budget = std::max<long long>(1, max_evals_);
-    int Nnext = static_cast<int>(std::floor(
-        double(N0_) + (double(Nmin_) - double(N0_)) * (double(nfe) / double(budget))));
-    if (Nnext < Nmin_) Nnext = Nmin_;
-    if (Nnext > static_cast<int>(X_.size())) Nnext = static_cast<int>(X_.size()); // never grow back
+    sr_ = double(S) / double(N);
 
-    if (Nnext < static_cast<int>(X_.size())) {
-        std::vector<int> idx(X_.size());
-        for (size_t i = 0; i < idx.size(); ++i) idx[i] = static_cast<int>(i);
-        std::sort(idx.begin(), idx.end(), [&](int a, int b) { return FX_[a] < FX_[b]; });
+    // ---- linear front-size reduction, remove the worst (RDEx.cpp:640-642, 286-309) ----
+    const double nfe   = double(prob_->calls());
+    const double maxfe = double(std::max<long long>(1, (long long)max_evals_));
+    int newN = static_cast<int>(double(Nmin_ - N0_) / maxfe * nfe + double(N0_));
+    if (newN < Nmin_) newN = Nmin_;
+    if (newN > N)     newN = N;
+    while (static_cast<int>(XF_.size()) > newN) {
+        size_t worst = 0;
+        for (size_t k = 1; k < FF_.size(); ++k) if (FF_[k] > FF_[worst]) worst = k;
+        XF_.erase(XF_.begin() + worst);
+        FF_.erase(FF_.begin() + worst);
+        fit_mass_.erase(fit_mass_.begin() + worst);
+    }
+    // pf_index_ is left unchanged, as in the original (see the selection step).
 
-        std::vector<Vec>    Xk(Nnext);
-        std::vector<double> Fk(Nnext);
-        for (int i = 0; i < Nnext; ++i) { Xk[i] = X_[idx[i]]; Fk[i] = FX_[idx[i]]; }
-        X_  = std::move(Xk);
-        FX_ = std::move(Fk);
-        pop_ = Nnext; // keep the base class's population() accessor consistent
+    // ---- memory update (RDEx.cpp:250-258) ----
+    if (S > 0) {
+        mem_CR_[mem_pos_] = 0.5 * (meanWL(succ_CR, succ_dF) + mem_CR_[mem_pos_]);
+        mem_F_[mem_pos_]  = meanWL(succ_F, succ_dF);
+        mem_pos_ = (mem_pos_ + 1) % H_;
     }
 
-    updateStop(FX_);
+    // ---- current population <- best newN of its first newN+S entries (RDEx.cpp:644-666) ----
+    // (Same as the original: the pool is the first newN+S stored entries, i.e.
+    // when the front shrank, the last accepted trials of the generation may be
+    // left out of the pool, exactly as in LSRTDE/RDEx.)
+    {
+        const int pool = std::min(newN + S, static_cast<int>(XC_.size()));
+        std::vector<Vec>    Xk;
+        std::vector<double> Fk;
+        if (pool > newN) {
+            const std::vector<int> idx = ascendingOrder(FC_, pool);
+            Xk.reserve(newN); Fk.reserve(newN);
+            for (int i = 0; i < newN; ++i) { Xk.push_back(XC_[idx[i]]); Fk.push_back(FC_[idx[i]]); }
+        } else {
+            Xk.assign(XC_.begin(), XC_.begin() + newN);
+            Fk.assign(FC_.begin(), FC_.begin() + newN);
+        }
+        XC_ = std::move(Xk);
+        FC_ = std::move(Fk);
+    }
+
+    pop_ = newN;
+    updateStop(FF_);
     printBest();
 }
 
@@ -298,13 +328,13 @@ void RDEx::end() {
         best_x_ = xloc;
     }
 
-    if (!X_.empty() && !FX_.empty()) {
-        size_t worst = 0; double fw = FX_[0];
-        for (size_t k = 1; k < FX_.size(); ++k) {
-            if (FX_[k] > fw) { fw = FX_[k]; worst = k; }
+    if (!XF_.empty() && !FF_.empty()) {
+        size_t worst = 0; double fw = FF_[0];
+        for (size_t k = 1; k < FF_.size(); ++k) {
+            if (FF_[k] > fw) { fw = FF_[k]; worst = k; }
         }
-        X_[worst]  = best_x_;
-        FX_[worst] = best_f_;
+        XF_[worst] = best_x_;
+        FF_[worst] = best_f_;
     }
     printBest();
 }

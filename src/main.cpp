@@ -13,6 +13,9 @@
 #include <filesystem>
 #include <cstdlib>
 #include <random>
+#include <map>
+#include <set>
+#include <tuple>
 
 #ifdef OPTIM_HAVE_OPENMP
 #include <omp.h>
@@ -23,9 +26,11 @@
 #include "optimizer.h"
 #include "factory.h"
 #include "config.h"
+#include "stats.h"
 #include "sensitivity.h"
 #include "options.h"
 #include "fixed_dims.h"
+#include "init.h"
 
 
 static std::filesystem::path findOptimsolutionCfg(const char* argv0)
@@ -66,10 +71,9 @@ static std::filesystem::path findOptimsolutionCfg(const char* argv0)
 using namespace optimsolution;
 
 namespace optimsolution {
-    std::pair<Vec,double> localGD   (Problem* prob, std::mt19937_64& rng, const Vec& x0);
-    std::pair<Vec,double> localLBFGS(Problem* prob, std::mt19937_64& rng, const Vec& x0);
-    std::pair<Vec,double> localBFGS (Problem* prob, std::mt19937_64& rng, const Vec& x0);
-    std::pair<Vec,double> localNM   (Problem* prob, std::mt19937_64& rng, const Vec& x0);
+    int runNNLandscapeCli(int argc, char** argv);   // defined in src/mode_nnlandscape.cpp
+    int runPortfolioCli(int argc, char** argv);     // defined in src/mode_portfolio.cpp (Mode 8)
+    int runComplexityCli(int argc, char** argv, const std::string& cfgFile); // src/mode_complexity.cpp (CEC 2017 T0/T1/T2)
 }
 
 // ---------- helpers ----------
@@ -84,7 +88,454 @@ static inline double stdev(const std::vector<double>& v){
 }
 static void usage(const char* argv0){
     std::cout << "Usage:\n  " << argv0 << " <method> <problem> [dimension]\n"
-              << "  " << argv0 << " --multi <method> <problem> [dimension]\n";
+              << "  " << argv0 << " --multi <method> <problem> [dimension]\n"
+              << "  " << argv0 << " --batch <batch_list_file> [output_dir]   (default output_dir: optimsolution_gui_run)\n"
+              << "  " << argv0 << " --features <problem> [dimension] [n_samples] [output_file]\n"
+              << "  " << argv0 << " --rank <batch_master.csv> [output_prefix] [metric_column]\n"
+              << "  " << argv0 << " --nnlandscape --dataset <path.train> --out-prefix <prefix> --out-summary <summary.csv> [options]\n"
+              << "                 (train a neural network as a Problem and sample the loss landscape locally around\n"
+              << "                  the found minimum; run with --nnlandscape -h for the full option list)\n"
+              << "  " << argv0 << " --portfolio --problem <name> [--dim D] --methods m1,m2,m3 --out-prefix <prefix> [options]\n"
+              << "                 (Mode 8: mid-run dynamic algorithm switching -- relays between candidate methods\n"
+              << "                  across evaluation-budget segments, warm-starting each segment near the current\n"
+              << "                  incumbent; run with --portfolio -h for the full option list)\n"
+              << "  " << argv0 << " --complexity --methods m1,m2,m3 [--dims 10,30,50] [--problem cec2017f18] [--evals 200000] [--runs 5] [--out complexity.csv]\n"
+              << "                 (algorithm complexity T0/T1/T2/C with the CEC 2017 procedure)\n";
+}
+
+// ---------------------------------------------------------------------
+// Headless batch mode (mode 4): allows scripted, GUI-free execution of
+// many (method, problem, dimension) combinations, each producing the
+// same *_summary.csv row format already written by the normal single-run
+// path (see the [global] csv_summary block below). This is what lets us
+// build large reproducible meta-datasets (e.g. for algorithm-selection /
+// landscape-analysis studies) on a headless server or cluster, without
+// depending on the Qt "Batch run" mode in the GUI.
+//
+// This function is intentionally self-contained: it does NOT touch the
+// existing single-run execution path in main() at all. It only re-invokes
+// the same executable (argv0) as a child process, once per combination,
+// via std::system(). Per-combination CSV output is routed into a single
+// folder via the OPTIMSOLUTION_BATCH_PREFIX environment variable, which
+// applyBatchEnvOverrides() below picks up.
+// ---------------------------------------------------------------------
+
+// Read env overrides for batch children. Called once, right after
+// Config::load(), in the normal single-run path. If OPTIMSOLUTION_BATCH_PREFIX
+// is not set, this is a strict no-op and normal (non-batch) behavior is
+// completely unaffected.
+static void applyBatchEnvOverrides(optimsolution::GeneralOptions& g){
+    const char* pfx = std::getenv("OPTIMSOLUTION_BATCH_PREFIX");
+    if (!pfx || !*pfx) return;
+    g.csv_enable      = true;
+    g.csv_summary     = true;
+    g.csv_convergence = false;   // keep batch runs light on disk for large grids
+    g.csv_prefix      = pfx;
+}
+
+struct BatchSpec {
+    std::vector<std::string> methods;
+    std::vector<std::string> problems;
+    std::vector<int>         dims;
+    // Explicit (problem, dim) pairs -- used when the GUI generates this file
+    // from its per-problem dimension selection (Batch run's "[d=N]" override
+    // mechanism). dim==0 means "use that problem's fixed/default dimension".
+    // When non-empty, this REPLACES the problems x dims cartesian product
+    // below (methods still combine with every pair via a plain cartesian
+    // product on methods only).
+    std::vector<std::pair<std::string,int>> pairs;
+    // Explicit (method, problem, dim) triples -- a fully sparse execution
+    // list, bypassing every cartesian product above. Used by the GUI's
+    // "load previous experiment, then add/remove methods/problems" pipeline
+    // workflow: only the genuinely NEW combinations need to actually run
+    // (ones already sitting on disk as a *_summary.csv from an earlier
+    // session are skipped GUI-side), so a plain methods x pairs product
+    // would needlessly redo already-computed work. An explicitly EMPTY
+    // "triples:" line (sawTriplesKey true, triples still empty) is valid
+    // and means "run nothing new, just re-merge whatever summary CSVs are
+    // currently on disk" -- e.g. after the GUI deleted some removed
+    // combinations' summary files.
+    std::vector<std::tuple<std::string,std::string,int>> triples;
+    bool sawTriplesKey = false;
+};
+
+// Minimal parser for the batch list file. Format (one directive per line):
+//   methods: pso,de,arq,jso,gwo
+//   problems: ackley,rastrigin,sphere
+//   dims: 2,5,10,20,30
+// -- OR, equivalently/additionally, explicit pairs (one entry per exact
+//    problem+dimension combination, e.g. as generated by the GUI):
+//   pairs: rastrigin:30, sphere:10, hartmann6:0
+// -- OR a fully explicit, sparse (method,problem,dim) list (bypasses every
+//    cartesian product above entirely):
+//   triples: jso:sphere:10, cmaes:sphere:10, jso:ackley:30
+// Blank lines and lines starting with '#' are ignored.
+static bool loadBatchSpec(const std::string& path, BatchSpec& out, std::string& err){
+    std::ifstream in(path);
+    if (!in) { err = "Cannot open batch list file: " + path; return false; }
+    std::string line;
+    auto trimStr = [](const std::string& s){
+        size_t a = s.find_first_not_of(" \t\r\n");
+        size_t b = s.find_last_not_of(" \t\r\n");
+        if (a == std::string::npos) return std::string();
+        return s.substr(a, b - a + 1);
+    };
+    auto splitCsv = [&](const std::string& s){
+        std::vector<std::string> parts;
+        std::stringstream ss(s);
+        std::string tok;
+        while (std::getline(ss, tok, ',')) {
+            std::string t = trimStr(tok);
+            if (!t.empty()) parts.push_back(t);
+        }
+        return parts;
+    };
+    while (std::getline(in, line)) {
+        // strip comments/blank
+        size_t h = line.find('#');
+        if (h != std::string::npos) line = line.substr(0, h);
+        size_t a = line.find_first_not_of(" \t\r\n");
+        if (a == std::string::npos) continue;
+        size_t colon = line.find(':');
+        if (colon == std::string::npos) continue;
+        std::string key = trimStr(line.substr(0, colon));
+        std::string val = line.substr(colon + 1);
+        if (key.empty()) continue;
+        for (auto& c : key) c = (char)std::tolower((unsigned char)c);
+
+        if (key == "methods") {
+            for (auto& m : splitCsv(val)) out.methods.push_back(toLower(m));
+        } else if (key == "problems") {
+            for (auto& p : splitCsv(val)) out.problems.push_back(toLower(p));
+        } else if (key == "dims") {
+            for (auto& d : splitCsv(val)) {
+                try { out.dims.push_back(std::max(1, std::stoi(d))); }
+                catch (...) { /* ignore malformed entry */ }
+            }
+        } else if (key == "pairs") {
+            for (auto& tok : splitCsv(val)) {
+                size_t pc = tok.find(':');
+                if (pc == std::string::npos) continue;
+                std::string name = toLower(trimStr(tok.substr(0, pc)));
+                std::string dimStr = trimStr(tok.substr(pc + 1));
+                if (name.empty()) continue;
+                int dim = 0;
+                try { dim = std::stoi(dimStr); } catch (...) { dim = 0; }
+                out.pairs.push_back({name, dim});
+            }
+        } else if (key == "triples") {
+            out.sawTriplesKey = true;
+            for (auto& tok : splitCsv(val)) {
+                size_t c1 = tok.find(':');
+                if (c1 == std::string::npos) continue;
+                size_t c2 = tok.find(':', c1 + 1);
+                if (c2 == std::string::npos) continue;
+                std::string method  = toLower(trimStr(tok.substr(0, c1)));
+                std::string problem = toLower(trimStr(tok.substr(c1 + 1, c2 - c1 - 1)));
+                std::string dimStr  = trimStr(tok.substr(c2 + 1));
+                if (method.empty() || problem.empty()) continue;
+                int dim = 0;
+                try { dim = std::stoi(dimStr); } catch (...) { dim = 0; }
+                out.triples.push_back({method, problem, dim});
+            }
+        }
+    }
+    if (out.sawTriplesKey) {
+        // "triples:" (even if it parsed to zero usable entries) is a
+        // complete, self-sufficient work specification on its own -- no
+        // methods:/problems:/pairs: required alongside it.
+        return true;
+    }
+    if (out.methods.empty()) { err = "batch list file defines no methods"; return false; }
+    if (out.problems.empty() && out.pairs.empty()) {
+        err = "batch list file defines no problems and no pairs";
+        return false;
+    }
+    if (out.dims.empty()) out.dims.push_back(0); // 0 => "use fixed/default dim"
+    return true;
+}
+
+// Merge every "*_summary.csv" file found directly inside outDir into one
+// combined "batch_master.csv" (single shared header, one row per
+// method/problem/dim combination). This is the file to hand to the
+// Python-side statistics / ELA / meta-learning pipeline.
+static bool mergeBatchSummaries(const std::filesystem::path& outDir, std::string& err){
+    namespace fs = std::filesystem;
+    fs::path masterPath = outDir / "batch_master.csv";
+    std::ofstream master(masterPath, std::ios::trunc);
+    if (!master) { err = "Cannot create " + masterPath.string(); return false; }
+
+    std::vector<fs::path> files;
+    for (auto& entry : fs::directory_iterator(outDir)) {
+        if (!entry.is_regular_file()) continue;
+        std::string name = entry.path().filename().string();
+        if (name.size() <= 12 || name.rfind("_summary.csv") != name.size() - 12) continue;
+        // A genuine per-combination summary file always looks like
+        // "<method>_<problem>_d<digits>_summary.csv". This additionally
+        // excludes the CLI's OWN aggregate outputs that happen to also end
+        // in "_summary.csv" (currently just "batch_method_summary.csv") --
+        // without this check, that aggregate file (one row per METHOD, with
+        // completely different columns: method,groups_used,avg_rank,wins,
+        // mean_success_rate) gets swept into this merge as if it were a
+        // per-combination row, injecting one garbage row per method with a
+        // blank problem/dim into batch_master.csv. Those blank-problem rows
+        // then silently group together as a single extra "(problem=blank,
+        // dim=blank)" group that Friedman/Wilcoxon may or may not count as
+        // "complete" depending on exactly which methods' aggregate rows are
+        // present -- which is exactly what made the reported "N (complete
+        // groups)" count drift by +/-1 between two otherwise-identical runs.
+        const std::string base = name.substr(0, name.size() - 12); // strip "_summary.csv"
+        const size_t dPos = base.rfind("_d");
+        if (dPos == std::string::npos) continue;
+        const std::string dimPart = base.substr(dPos + 2);
+        if (dimPart.empty() || !std::all_of(dimPart.begin(), dimPart.end(),
+                                             [](unsigned char c){ return std::isdigit(c); })) {
+            continue;
+        }
+        files.push_back(entry.path());
+    }
+    std::sort(files.begin(), files.end());
+
+    // Split a raw CSV line on commas. The summary CSVs this reads/writes
+    // never contain quoted/embedded commas (every field is a plain number,
+    // identifier, or simple word), so a plain split is safe and matches
+    // exactly how these files are written elsewhere in this program.
+    auto splitCsvLine = [](const std::string& line) {
+        std::vector<std::string> out;
+        std::string cur;
+        for (char c : line) {
+            if (c == ',') { out.push_back(cur); cur.clear(); }
+            else cur.push_back(c);
+        }
+        out.push_back(cur);
+        return out;
+    };
+
+    // The FIRST file (alphabetically) fixes the canonical column order for
+    // the whole merged batch_master.csv. Every other file's columns are
+    // remapped BY NAME into that order before being written -- not simply
+    // concatenated as raw text -- because a summary CSV's column set/order
+    // can legitimately differ between files (e.g. one written by an older
+    // build, or a method-specific column). Concatenating mismatched rows
+    // verbatim under someone else's header silently shifts every field
+    // after the first divergence into the WRONG column (a numeric
+    // "population" value ending up under "init", "mean_f" ending up under
+    // an unrelated column, etc.) -- this was a real, confirmed bug: it
+    // corrupted a newly-added method's row whenever its summary CSV's
+    // header didn't byte-for-byte match the first file's.
+    std::vector<std::string> canonicalHeader;
+    int  mergedCount = 0;
+    int  remappedFiles = 0;
+    int  droppedRows = 0;
+
+    for (auto& f : files) {
+        std::ifstream in(f);
+        if (!in) continue;
+        std::string headerLine, dataLine;
+        if (!std::getline(in, headerLine)) continue;
+        std::vector<std::string> header = splitCsvLine(headerLine);
+
+        if (canonicalHeader.empty()) {
+            canonicalHeader = header;
+            master << headerLine << "\n";
+        }
+
+        const bool sameOrder = (header == canonicalHeader);
+        // Build a "canonical column index -> this file's column index" map
+        // once per file (not per row) when the header differs.
+        std::vector<int> colMap; // colMap[i] = source column for canonical column i, or -1 if absent
+        if (!sameOrder) {
+            ++remappedFiles;
+            colMap.resize(canonicalHeader.size(), -1);
+            for (size_t i = 0; i < canonicalHeader.size(); ++i) {
+                for (size_t j = 0; j < header.size(); ++j) {
+                    if (header[j] == canonicalHeader[i]) { colMap[i] = (int)j; break; }
+                }
+            }
+        }
+
+        while (std::getline(in, dataLine)) {
+            if (dataLine.empty()) continue;
+            if (sameOrder) {
+                master << dataLine << "\n";
+                ++mergedCount;
+                continue;
+            }
+            std::vector<std::string> fields = splitCsvLine(dataLine);
+            std::string remapped;
+            bool anyMissing = false;
+            for (size_t i = 0; i < canonicalHeader.size(); ++i) {
+                if (i > 0) remapped += ',';
+                const int srcCol = colMap[i];
+                if (srcCol >= 0 && (size_t)srcCol < fields.size()) {
+                    remapped += fields[(size_t)srcCol];
+                } else {
+                    anyMissing = true; // canonical column not present in this file -> leave blank
+                }
+            }
+            if (anyMissing) ++droppedRows; // still written (with blanks), just flagged for visibility
+            master << remapped << "\n";
+            ++mergedCount;
+        }
+    }
+    std::cout << "[batch] merged " << mergedCount << " summary rows from "
+              << files.size() << " files into " << masterPath.string() << "\n";
+    if (remappedFiles > 0) {
+        std::cout << "[batch] note: " << remappedFiles << " summary file(s) had a different "
+                  << "column order/set than the first file and were remapped by column name"
+                  << (droppedRows > 0 ? " (" + std::to_string(droppedRows) + " row(s) had a column missing from their source file, left blank)" : "")
+                  << ".\n";
+    }
+    return true;
+}
+
+static int runBatchCli(int argc, char** argv){
+    // argv[0]=exe, argv[1]="--batch", argv[2]=batch_list_file, [argv[3]=output_dir]
+    if (argc < 3) {
+        std::fprintf(stderr,
+            "Usage:\n  %s --batch <batch_list_file> [output_dir]\n", argv[0]);
+        return 1;
+    }
+    namespace fs = std::filesystem;
+    std::string listFile = argv[2];
+    // Default output folder matches the GUI's own runtime folder
+    // ("optimsolution_gui_run"), so headless --batch output lands in the
+    // same place the GUI already knows how to browse/import/clean up.
+    // Override with an explicit output_dir argument if you want elsewhere.
+    fs::path outDir = (argc >= 4) ? fs::path(argv[3]) : fs::path("optimsolution_gui_run");
+
+    BatchSpec spec;
+    std::string err;
+    if (!loadBatchSpec(listFile, spec, err)) {
+        std::fprintf(stderr, "[batch] error: %s\n", err.c_str());
+        return 1;
+    }
+
+    std::error_code ec;
+    fs::create_directories(outDir, ec);
+    if (ec) {
+        std::fprintf(stderr, "[batch] error: cannot create output dir '%s': %s\n",
+                     outDir.string().c_str(), ec.message().c_str());
+        return 1;
+    }
+
+    fs::path exePath = fs::absolute(fs::path(argv[0]));
+
+    // Build the final flat (method, problem, dim) execution list, from
+    // whichever directive was supplied. Priority: explicit triples (fully
+    // sparse, each with its own method) > explicit pairs (combined with
+    // every method) > problems x dims cartesian (combined with every
+    // method). Triples exist specifically for callers that already know
+    // exactly which combinations are missing (e.g. the GUI's "load
+    // previous experiment, then add/remove" workflow) and don't want to
+    // redo a full cartesian product.
+    struct FlatTarget { std::string method, problem; int dim; };
+    std::vector<FlatTarget> flatTargets;
+    if (spec.sawTriplesKey) {
+        for (const auto& t : spec.triples)
+            flatTargets.push_back({std::get<0>(t), std::get<1>(t), std::get<2>(t)});
+    } else {
+        std::vector<std::pair<std::string,int>> pairTargets;
+        if (!spec.pairs.empty()) {
+            pairTargets = spec.pairs;
+        } else {
+            for (const auto& problem : spec.problems)
+                for (int dim : spec.dims)
+                    pairTargets.push_back({problem, dim});
+        }
+        for (const auto& method : spec.methods)
+            for (const auto& pt : pairTargets)
+                flatTargets.push_back({method, pt.first, pt.second});
+    }
+
+    long long total = (long long)flatTargets.size();
+    long long done = 0;
+    long long skipped = 0;
+    long long failed = 0;
+
+    std::cout << "[batch] " << total << " (method, problem, dim) combination(s) to run\n";
+    std::cout << "[batch] output dir: " << fs::absolute(outDir).string() << "\n";
+
+    for (const auto& t : flatTargets) {
+        const std::string& method = t.method;
+        const std::string& problem = t.problem;
+        const int requestedDim = t.dim;
+
+        auto methodCheck = makeMethod(method);
+        if (!methodCheck) {
+            std::cout << "[batch] skip: unknown/unregistered method '" << method << "'\n";
+            ++skipped;
+            continue;
+        }
+
+        // Skip problems the current build doesn't actually know about,
+        // rather than letting the run fail loudly.
+        auto probCheck = makeProblem(problem);
+        if (!probCheck) {
+            std::cout << "[batch] skip: unknown problem '" << problem << "'\n";
+            ++skipped;
+            continue;
+        }
+        int fixed = optimsolution::getFixedDimOrZero(problem);
+
+        int effDim = requestedDim;
+        if (fixed > 0) {
+            if (requestedDim != 0 && requestedDim != fixed) {
+                std::cout << "[batch] skip: '" << problem << "' has fixed dim " << fixed
+                          << ", requested " << requestedDim << "\n";
+                ++skipped;
+                continue;
+            }
+            effDim = fixed;
+        } else if (effDim <= 0) {
+            std::cout << "[batch] skip: '" << problem << "' needs an explicit dimension\n";
+            ++skipped;
+            continue;
+        }
+
+        {
+            std::ostringstream prefixSs;
+            prefixSs << (outDir / (method + "_" + problem + "_d" + std::to_string(effDim))).string();
+            const std::string prefix = prefixSs.str();
+
+#if defined(_WIN32)
+            _putenv_s("OPTIMSOLUTION_BATCH_PREFIX", prefix.c_str());
+#else
+            setenv("OPTIMSOLUTION_BATCH_PREFIX", prefix.c_str(), 1);
+#endif
+
+            std::ostringstream cmd;
+            cmd << "\"" << exePath.string() << "\" " << method << " " << problem;
+            if (fixed <= 0) cmd << " " << effDim;
+
+            ++done;
+            std::cout << "[batch] (" << done << "/" << total << ") "
+                      << method << " " << problem << " d" << effDim << " ... " << std::flush;
+
+            int rc = std::system(cmd.str().c_str());
+            if (rc != 0) {
+                std::cout << "FAILED (exit " << rc << ")\n";
+                ++failed;
+            } else {
+                std::cout << "ok\n";
+            }
+        }
+    }
+
+#if defined(_WIN32)
+    _putenv_s("OPTIMSOLUTION_BATCH_PREFIX", "");
+#else
+    unsetenv("OPTIMSOLUTION_BATCH_PREFIX");
+#endif
+
+    std::cout << "[batch] finished: " << done << " run, " << skipped << " skipped, "
+              << failed << " failed\n";
+
+    if (!mergeBatchSummaries(outDir, err)) {
+        std::fprintf(stderr, "[batch] error: %s\n", err.c_str());
+        return 1;
+    }
+    return failed > 0 ? 1 : 0;
 }
 static const char* stopRuleName(StopRule r){
     switch(r){
@@ -101,11 +552,6 @@ static const char* stopRuleName(StopRule r){
         default:                   return "?";
     }
 }
-static inline bool isLocalMethod(const std::string& m){
-    std::string s = toLower(m);
-    return (s=="gd" || s=="lbfgs" || s=="bfgs" || s=="nm");
-}
-static Vec makeInitialX0(int dim){ return Vec((size_t)dim, 0.0); }
 
 // ---------- ANSI colors ----------
 static const char* C_RESET   = "\033[0m";
@@ -392,9 +838,491 @@ static int runMultiObjectiveCli(int argc, char** argv) {
     return 0;
 }
 
+// ---------------------------------------------------------------------
+// Mode 5: Landscape sampling (Exploratory Landscape Analysis input).
+//
+// This mode does NOT compute ELA features itself (skewness, meta-model
+// fit, information content, nearest-better-clustering, etc.) — that is
+// intentionally left to a companion Python step using an established
+// library (pflacco), so we are not re-deriving well-validated statistics
+// by hand. What this mode DOES do, and is the only thing it needs to do
+// correctly, is:
+//   1. sample N points inside a problem's actual bounds, using the exact
+//      same Initializer/InitOptions machinery ([init] section of
+//      optimsolution.cfg) already used by every optimizer in the
+//      framework, so the sample is consistent with how the rest of the
+//      framework explores the space (uniform, LHS, Halton, etc.);
+//   2. evaluate the problem's real objective function at each point
+//      (through Problem::evaluate(), the same public entry point every
+//      optimizer uses, so call-counting semantics stay consistent);
+//   3. write (x_1..x_d, f) to CSV, alongside the problem's own declared
+//      metadata (modality, separability, known global optimum if any),
+//      which later gives us an independent, hand-curated cross-check
+//      against whatever the data-driven ELA features suggest.
+//
+// It does not touch any method/optimizer code at all -- Problem and
+// Initializer are used exactly as they already exist.
+// ---------------------------------------------------------------------
+static int runFeaturesCli(int argc, char** argv){
+    // argv[0]=exe, argv[1]="--features", argv[2]=problem,
+    // [argv[3]=dimension], [argv[4]=n_samples], [argv[5]=output_file]
+    if (argc < 3) {
+        std::fprintf(stderr,
+            "Usage:\n  %s --features <problem> [dimension] [n_samples] [output_file]\n",
+            argv[0]);
+        return 1;
+    }
+    namespace fs = std::filesystem; // used only via findOptimsolutionCfg() below
+
+    std::string problem = toLower(argv[2]);
+    const std::string cfg_file = findOptimsolutionCfg(argv[0]).string();
+
+    auto prob = makeProblem(problem);
+    if (!prob) {
+        std::fprintf(stderr, "Unknown problem: %s\n", problem.c_str());
+        return 1;
+    }
+
+    // -------- Dimension handling: identical rules to the single-run path,
+    // so a problem behaves the same way here as everywhere else in the
+    // framework (fixed-dim problems reject an explicit dim, and vice versa).
+    int fixed = optimsolution::getFixedDimOrZero(problem);
+    int dim = 0;
+    bool dim_from_cli = (argc >= 4) && std::string(argv[3]) != "0";
+    if (dim_from_cli) {
+        if (fixed > 0) {
+            std::fprintf(stderr,
+                "Problem '%s' has a fixed dimension of %d.\n"
+                "Run it without a dimension, e.g.:\n"
+                "  %s --features %s\n",
+                problem.c_str(), fixed, argv[0], problem.c_str());
+            return 1;
+        }
+        dim = std::max(1, std::atoi(argv[3]));
+    } else {
+        if (fixed > 0) {
+            dim = fixed;
+        } else {
+            std::fprintf(stderr,
+                "Error: problem '%s' requires a dimension (e.g. %s --features %s 30)\n",
+                problem.c_str(), argv[0], problem.c_str());
+            return 1;
+        }
+    }
+
+    prob->init(dim);
+    prob->setMaxEvaluations(std::numeric_limits<long long>::max());
+
+    // -------- Effective dimension.
+    // init() is allowed to adjust the REQUESTED dimension: e.g. Powell is
+    // defined in blocks of four variables, so init(10/30/50) really builds
+    // a 12/32/52-dimensional problem, and that is the dimension the
+    // optimizers actually run at. The sampler draws points of the problem's
+    // own dimension and evaluate() uses all of their coordinates, so this
+    // stage must sample, evaluate AND export exactly that many coordinates.
+    // (It used to size the sample and write the x-columns from the
+    // requested dimension instead, which for Powell exported only the first
+    // 10/30/50 of 12/32/52 coordinates while f was computed from all of
+    // them -- the exported design matrix then no longer determined f.)
+    // The "dim" column stays the REQUESTED dimension: it is the (problem,
+    // dim) key shared with batch_ranked.csv, so downstream joins are
+    // unchanged; the effective dimension is recorded in "eff_dim".
+    const int effDim = prob->dimension();
+    if (effDim != dim) {
+        std::fprintf(stderr,
+            "[features] note: problem '%s' adjusted the requested dimension %d to %d; "
+            "sampling, evaluating and exporting all %d coordinates "
+            "(column 'dim' keeps the requested value %d as the join key).\n",
+            problem.c_str(), dim, effDim, effDim, dim);
+    }
+
+    // -------- Sample count: literature default for ELA is on the order of
+    // 50*d-100*d points (Bossek/flacco convention). We default to 100*d,
+    // with a hard floor so tiny dimensions still get a usable sample.
+    // d is the EFFECTIVE dimension (see above).
+    long long n_samples = (argc >= 5) ? std::atoll(argv[4]) : (100LL * effDim);
+    if (n_samples < 50) n_samples = 50;
+
+    auto cfg = optimsolution::Config::load(cfg_file, "features");
+
+    // -------- Output path precedence: explicit CLI arg > OPTIMSOLUTION_BATCH_PREFIX
+    // (so a future batch driver can route --features output into the same
+    // folder as --batch summaries) > auto name in the current directory.
+    std::string outPath;
+    if (argc >= 6) {
+        outPath = argv[5];
+    } else if (const char* pfx = std::getenv("OPTIMSOLUTION_BATCH_PREFIX")) {
+        if (*pfx) outPath = std::string(pfx) + "_features.csv";
+    }
+    if (outPath.empty()) {
+        outPath = problem + "_d" + std::to_string(dim) + "_features.csv";
+    }
+
+    optimsolution::Initializer initializer;
+    initializer.configure(cfg.init);
+
+    std::mt19937_64 rng(cfg.g.seed_base);
+    std::vector<Vec> X = initializer.samplePopulation(*prob, rng, (int)n_samples);
+    if (!X.empty() && (int)X.front().size() != effDim) {
+        std::fprintf(stderr,
+            "[features] internal error: sampled points have %d coordinates but the problem's "
+            "effective dimension is %d.\n", (int)X.front().size(), effDim);
+        return 1;
+    }
+
+    std::ofstream out(outPath, std::ios::trunc);
+    if (!out.is_open()) {
+        std::fprintf(stderr, "[features] Could not open output file: %s\n", outPath.c_str());
+        return 1;
+    }
+
+    out << "problem,dim,n_samples,init_type,modality,separability,"
+           "has_known_global_optimum,known_global_optimum,eff_dim,";
+    for (int i = 0; i < effDim; ++i) out << "x" << (i + 1) << ",";
+    out << "f\n";
+
+    const std::string modality     = prob->modality();
+    const std::string separability = prob->separability();
+    const bool hasOpt  = prob->hasKnownGlobalOptimum();
+    const double fopt  = hasOpt ? prob->globalOptimum() : 0.0;
+
+    long long evaluated = 0;
+    for (const auto& x : X) {
+        double f = prob->evaluate(x);
+        out << problem << "," << dim << "," << n_samples << "," << cfg.init.type << ","
+            << modality << "," << separability << ","
+            << (hasOpt ? 1 : 0) << "," << std::setprecision(15) << fopt << ","
+            << effDim << ",";
+        for (int i = 0; i < effDim; ++i) out << std::setprecision(15) << x[i] << ",";
+        out << std::setprecision(15) << f << "\n";
+        ++evaluated;
+    }
+    out.close();
+
+    std::fprintf(stdout,
+        "[features] problem=%s dim=%d eff_dim=%d init=%s samples=%lld -> %s (evals used: %lld)\n",
+        problem.c_str(), dim, effDim, cfg.init.type.c_str(), evaluated, outPath.c_str(), prob->calls());
+    return 0;
+}
+
+// ---------------------------------------------------------------------
+// Mode 6: statistical ranking / labeling ("--rank").
+//
+// This is the piece that turns raw --batch output into the LABELED
+// meta-dataset an algorithm-selection study actually needs: for every
+// (problem, dim) group, which method performed best, its rank among all
+// methods tried on that group, and whether the overall differences between
+// methods are statistically significant (Friedman omnibus test + pairwise
+// Wilcoxon signed-rank with Holm correction) -- the standard protocol in
+// the metaheuristics-comparison literature.
+//
+// All statistics below (regularized incomplete gamma / chi-square p-value,
+// Friedman chi-square, Wilcoxon signed-rank normal approximation with
+// continuity correction and tie handling, Holm-Bonferroni adjustment,
+// average-rank and competition-rank with tie handling) were independently
+// validated against scipy.stats / pandas on synthetic reference data before
+// being wired in here (chi-square vs scipy.stats.chi2.sf, Friedman vs a
+// hand-computed chi2/p, Wilcoxon vs scipy.stats.wilcoxon(mode="approx") both
+// with and without continuity correction, Holm vs a manual reference
+// computation, and both ranking conventions vs pandas .rank()) -- every
+// check matched to floating-point precision.
+// ---------------------------------------------------------------------
+
+// The statistical machinery this mode uses (chi-square p-value, Friedman
+// with tie correction, Wilcoxon signed-rank, Holm adjustment, average /
+// competition ranking) now lives in include/stats.h, so that Mode 8
+// ("--portfolio") compares its switching policies against their baselines
+// with the exact same validated implementations rather than a second copy.
+// The call sites below are unchanged: the using-directive brings the names
+// into scope exactly as when they were file-local statics here.
+using namespace optimsolution::stats;
+
+// Minimal CSV reader for the plain, unquoted, comma-separated files this
+// framework itself generates (--batch's batch_master.csv and per-run
+// *_summary.csv share this exact simple format -- no embedded commas or
+// quoting is ever produced by them, so a straightforward split is correct
+// and matches how every other part of this codebase reads its own CSVs).
+struct SimpleCsv {
+    std::vector<std::string> header;
+    std::vector<std::vector<std::string>> rows;
+    int col(const std::string& name) const {
+        for (size_t i = 0; i < header.size(); ++i) if (header[i] == name) return (int)i;
+        return -1;
+    }
+};
+// Robust double parser: unlike std::stod, this never throws -- in particular
+// it correctly handles legitimate subnormal values (e.g. an optimizer
+// converging to something like 4.94065645841e-324, effectively the smallest
+// positive double) that glibc's std::stod flags as ERANGE/out_of_range even
+// though strtod itself returns the correct value. Unparseable input yields 0.0.
+static double parseDoubleSafe(const std::string& s) {
+    if (s.empty()) return 0.0;
+    return std::strtod(s.c_str(), nullptr);
+}
+
+static bool loadSimpleCsv(const std::string& path, SimpleCsv& out, std::string& err) {
+    std::ifstream in(path);
+    if (!in) { err = "Cannot open CSV: " + path; return false; }
+    std::string line;
+    auto stripCr = [](std::string& s){
+        // Defensive: strip a trailing '\r' so this reads correctly regardless
+        // of whether the CSV was generated on Windows (CRLF) and later read
+        // on a system that doesn't do CRLF->LF translation on input (or vice
+        // versa). Without this, whichever column happens to be last would
+        // silently carry a trailing '\r' into its value.
+        if (!s.empty() && s.back() == '\r') s.pop_back();
+    };
+    auto splitLine = [&](std::string s){
+        stripCr(s);
+        std::vector<std::string> parts;
+        std::stringstream ss(s);
+        std::string tok;
+        while (std::getline(ss, tok, ',')) parts.push_back(tok);
+        return parts;
+    };
+    if (!std::getline(in, line)) { err = "CSV is empty: " + path; return false; }
+    out.header = splitLine(line);
+    while (std::getline(in, line)) {
+        if (line.empty() || line == "\r") continue;
+        out.rows.push_back(splitLine(line));
+    }
+    return true;
+}
+
+static int runRankCli(int argc, char** argv) {
+    // argv[0]=exe, argv[1]="--rank", argv[2]=batch_master.csv,
+    // [argv[3]=output_prefix], [argv[4]=metric_column]
+    if (argc < 3) {
+        std::fprintf(stderr,
+            "Usage:\n  %s --rank <batch_master.csv> [output_prefix] [metric_column]\n"
+            "  (metric_column defaults to 'mean_f', lower = better)\n", argv[0]);
+        return 1;
+    }
+    namespace fs = std::filesystem;
+    const std::string inputCsv = argv[2];
+    const std::string metricCol = (argc >= 5) ? argv[4] : "mean_f";
+
+    std::string outPrefix;
+    if (argc >= 4) {
+        outPrefix = argv[3];
+    } else {
+        fs::path p(inputCsv);
+        outPrefix = (p.parent_path() / p.stem()).string();
+    }
+
+    SimpleCsv csv;
+    std::string err;
+    if (!loadSimpleCsv(inputCsv, csv, err)) {
+        std::fprintf(stderr, "[rank] error: %s\n", err.c_str());
+        return 1;
+    }
+    const int cMethod = csv.col("method");
+    const int cProblem = csv.col("problem");
+    const int cDim = csv.col("dim");
+    const int cMetric = csv.col(metricCol);
+    const int cSuccessRate = csv.col("success_rate");
+    if (cMethod < 0 || cProblem < 0 || cDim < 0 || cMetric < 0) {
+        std::fprintf(stderr,
+            "[rank] error: input CSV is missing required column(s) "
+            "(need 'method', 'problem', 'dim', '%s')\n", metricCol.c_str());
+        return 1;
+    }
+
+    // Group row indices by (problem, dim).
+    std::map<std::string, std::vector<int>> groups;
+    std::vector<std::string> groupKeyOf(csv.rows.size());
+    for (size_t i = 0; i < csv.rows.size(); ++i) {
+        const auto& row = csv.rows[i];
+        std::string key = row[cProblem] + "@" + row[cDim];
+        groupKeyOf[i] = key;
+        groups[key].push_back((int)i);
+    }
+
+    // Per-row rank/is_best (computed within each (problem,dim) group,
+    // independent of whether the group is "complete" -- these are always
+    // meaningful even for partial coverage).
+    std::vector<double> rowRank(csv.rows.size(), 0.0);
+    std::vector<int> rowIsBest(csv.rows.size(), 0);
+    // Per-method accumulators for the summary table.
+    std::map<std::string, double> sumRank, sumSuccessRate;
+    std::map<std::string, int> countGroups, countWins, countSuccessRate;
+    // Full set of methods seen anywhere, and which groups contain which methods
+    // (needed to find the "complete" subset of groups for Friedman/Wilcoxon).
+    std::set<std::string> allMethods;
+
+    for (const auto& kv : groups) {
+        const auto& idxs = kv.second;
+        std::vector<double> vals(idxs.size());
+        for (size_t t = 0; t < idxs.size(); ++t) {
+            vals[t] = parseDoubleSafe(csv.rows[idxs[t]][cMetric]);
+        }
+        std::vector<double> avgR = averageRank(vals);
+        std::vector<double> compR = competitionRank(vals);
+        for (size_t t = 0; t < idxs.size(); ++t) {
+            int i = idxs[t];
+            rowRank[i] = avgR[t];
+            rowIsBest[i] = (compR[t] == 1.0) ? 1 : 0;
+            const std::string& m = csv.rows[i][cMethod];
+            allMethods.insert(m);
+            sumRank[m] += avgR[t];
+            countGroups[m] += 1;
+            if (rowIsBest[i]) countWins[m] += 1;
+            if (cSuccessRate >= 0) {
+                sumSuccessRate[m] += parseDoubleSafe(csv.rows[i][cSuccessRate]); countSuccessRate[m] += 1;
+            }
+        }
+    }
+
+    // Write the per-row ranked CSV (original columns + rank + is_best).
+    {
+        std::ofstream out(outPrefix + "_ranked.csv", std::ios::trunc);
+        for (size_t c = 0; c < csv.header.size(); ++c) out << csv.header[c] << ",";
+        out << "rank,is_best\n";
+        for (size_t i = 0; i < csv.rows.size(); ++i) {
+            for (const auto& v : csv.rows[i]) out << v << ",";
+            out << std::setprecision(10) << rowRank[i] << "," << rowIsBest[i] << "\n";
+        }
+    }
+
+    // Write the per-method summary CSV.
+    {
+        std::ofstream out(outPrefix + "_method_summary.csv", std::ios::trunc);
+        out << "method,groups_used,avg_rank,wins" << (cSuccessRate >= 0 ? ",mean_success_rate" : "") << "\n";
+        for (const auto& m : allMethods) {
+            double avgRank = sumRank[m] / std::max(1, countGroups[m]);
+            out << m << "," << countGroups[m] << "," << std::setprecision(6) << avgRank << "," << countWins[m];
+            if (cSuccessRate >= 0) {
+                double msr = countSuccessRate[m] > 0 ? sumSuccessRate[m] / countSuccessRate[m] : 0.0;
+                out << "," << std::setprecision(6) << msr;
+            }
+            out << "\n";
+        }
+    }
+
+    // Determine the "complete" subset of groups: those containing every
+    // method in allMethods. Friedman/Wilcoxon are only statistically valid
+    // on a complete block design, so we restrict to those and say clearly
+    // when there aren't enough to run the test, rather than silently
+    // computing a number on mismatched data.
+    std::vector<std::string> methodList(allMethods.begin(), allMethods.end());
+    const int k = (int)methodList.size();
+    std::vector<std::vector<double>> completeRanks;   // [group][method] avg rank
+    std::vector<std::vector<double>> completeMetrics; // [group][method] raw metric (for Wilcoxon)
+    for (const auto& kv : groups) {
+        const auto& idxs = kv.second;
+        if ((int)idxs.size() != k) continue; // not complete for this group
+        std::map<std::string, double> valByMethod, rankByMethod;
+        std::vector<double> vals(idxs.size());
+        for (size_t t = 0; t < idxs.size(); ++t) vals[t] = parseDoubleSafe(csv.rows[idxs[t]][cMetric]);
+        std::vector<double> avgR = averageRank(vals);
+        for (size_t t = 0; t < idxs.size(); ++t) {
+            valByMethod[csv.rows[idxs[t]][cMethod]] = vals[t];
+            rankByMethod[csv.rows[idxs[t]][cMethod]] = avgR[t];
+        }
+        std::vector<double> rankRow, metricRow;
+        bool ok = true;
+        for (const auto& m : methodList) {
+            if (!valByMethod.count(m)) { ok = false; break; }
+            rankRow.push_back(rankByMethod[m]);
+            metricRow.push_back(valByMethod[m]);
+        }
+        if (ok) { completeRanks.push_back(rankRow); completeMetrics.push_back(metricRow); }
+    }
+
+    // Friedman omnibus test.
+    {
+        std::ofstream out(outPrefix + "_friedman.txt", std::ios::trunc);
+        auto fr = friedmanTest(completeRanks);
+        if (!fr.valid) {
+            out << "Friedman test: N/A -- need >=2 methods present in every group and "
+                   ">=2 complete groups; found " << completeRanks.size() << " complete group(s) "
+                   "out of " << groups.size() << " total, across " << k << " method(s).\n";
+        } else {
+            out << "Friedman omnibus test\n";
+            out << "N (complete problem/dim groups) = " << fr.N << "\n";
+            out << "k (methods)                     = " << k << "\n";
+            out << "chi^2 = " << std::setprecision(10) << fr.chi2 << "\n";
+            out << "df    = " << fr.df << "\n";
+            out << "p     = " << std::setprecision(10) << fr.p << "\n";
+            out << (fr.p < 0.05 ? "-> significant differences among methods at alpha=0.05\n"
+                                : "-> no significant difference detected at alpha=0.05\n");
+            out << "\nRank sums (lower = better):\n";
+            for (int j = 0; j < k; ++j)
+                out << "  " << methodList[j] << ": " << std::setprecision(8) << fr.rankSums[j] << "\n";
+        }
+    }
+
+    // Pairwise Wilcoxon signed-rank (Holm-adjusted) on the raw metric values
+    // across the same complete groups.
+    {
+        std::vector<std::string> pairA, pairB;
+        std::vector<WilcoxonResult> results;
+        for (int i = 0; i < k; ++i) {
+            for (int j = i + 1; j < k; ++j) {
+                std::vector<double> a, b;
+                for (const auto& row : completeMetrics) { a.push_back(row[i]); b.push_back(row[j]); }
+                results.push_back(wilcoxonSignedRank(a, b));
+                pairA.push_back(methodList[i]);
+                pairB.push_back(methodList[j]);
+            }
+        }
+        std::vector<double> pvals;
+        for (const auto& r : results) pvals.push_back(r.valid ? r.p : 1.0);
+        std::vector<double> adjusted = holmAdjust(pvals);
+
+        std::ofstream out(outPrefix + "_wilcoxon.csv", std::ios::trunc);
+        out << "method_a,method_b,n_pairs,statistic,z,p_raw,p_holm,significant_at_0.05\n";
+        for (size_t idx = 0; idx < results.size(); ++idx) {
+            const auto& r = results[idx];
+            out << pairA[idx] << "," << pairB[idx] << "," << r.n << ",";
+            if (r.valid) {
+                out << std::setprecision(8) << r.statistic << "," << r.z << ","
+                    << r.p << "," << adjusted[idx] << ","
+                    << (adjusted[idx] < 0.05 ? 1 : 0) << "\n";
+            } else {
+                out << "NA,NA,NA,NA,NA\n";
+            }
+        }
+    }
+
+    std::cout << "[rank] " << csv.rows.size() << " rows, " << groups.size() << " problem/dim group(s), "
+              << k << " method(s), " << completeRanks.size() << " complete group(s)\n";
+    std::cout << "[rank] wrote " << outPrefix << "_ranked.csv, " << outPrefix << "_method_summary.csv, "
+              << outPrefix << "_friedman.txt, " << outPrefix << "_wilcoxon.csv\n";
+    return 0;
+}
+
 int main(int argc, char** argv){
+    // Local searches must read the same settings file as everything else
+    // (it used to be opened relative to the current directory only).
+    optimsolution::setLocalSearchConfigPath(findOptimsolutionCfg(argc > 0 ? argv[0] : nullptr).string());
+
     if (argc >= 2 && std::string(argv[1]) == "--multi") {
         return runMultiObjectiveCli(argc, argv);
+    }
+    if (argc >= 2 && std::string(argv[1]) == "--batch") {
+        return runBatchCli(argc, argv);
+    }
+    if (argc >= 2 && std::string(argv[1]) == "--features") {
+        return runFeaturesCli(argc, argv);
+    }
+    if (argc >= 2 && std::string(argv[1]) == "--rank") {
+        return runRankCli(argc, argv);
+    }
+    if (argc >= 2 && std::string(argv[1]) == "--nnlandscape") {
+        // Mode 7: neural-network training + local landscape sampling.
+        // Implementation lives in src/mode_nnlandscape.cpp (see there for details).
+        return optimsolution::runNNLandscapeCli(argc, argv);
+    }
+    if (argc >= 2 && std::string(argv[1]) == "--complexity") {
+        // Algorithm complexity with the CEC 2017 procedure (T0, T1, T2, C).
+        // Implementation lives in src/mode_complexity.cpp.
+        return optimsolution::runComplexityCli(argc, argv, findOptimsolutionCfg(argv[0]).string());
+    }
+    if (argc >= 2 && std::string(argv[1]) == "--portfolio") {
+        // Mode 8: mid-run dynamic algorithm switching / portfolio relay.
+        // Implementation lives in src/mode_portfolio.cpp (see there for details).
+        return optimsolution::runPortfolioCli(argc, argv);
     }
 
     if (argc < 3){ usage(argv[0]); return 1; }
@@ -441,6 +1369,7 @@ int main(int argc, char** argv){
     prob->init(dim);
 
     auto cfg = Config::load(cfg_file, method);
+    applyBatchEnvOverrides(cfg.g);
     if (cfg.sens.enabled) {
         return run_sensitivity(method, problem, dim, cfg);
     }
@@ -495,6 +1424,7 @@ int main(int argc, char** argv){
 
     double total_seconds = 0.0;
     int effective_pop = -1;
+    long long effective_max_evals = -1;
 
     int current_run = -1;
     auto onLine = [&](const std::string& line){
@@ -557,7 +1487,11 @@ int main(int argc, char** argv){
     };
     std::vector<RunSlot> slots((size_t)RUNS);
 
-    int run_error = 0; // 2 = unknown problem, 3 = unknown method
+    // NOTE: run_error is declared further down, immediately inside the
+    // #ifdef OPTIM_HAVE_OPENMP block where it is actually used -- it used to
+    // live here unconditionally, which produced an "unused variable" warning
+    // on any build without OpenMP (the only place it's read/written is
+    // inside that #ifdef).
 
     auto executeOneRun = [&](int r, std::ostream* sink, RunSlot& out) -> int {
         auto p = makeProblem(problem);
@@ -566,19 +1500,10 @@ int main(int argc, char** argv){
         p->init(dim);
         p->setMaxEvaluations(cfg.g.max_evals);
 
-        std::mt19937_64 rng(cfg.g.seed_base + (unsigned long long)r);
-
-        if (isLocalMethod(method)){
-            Vec x0 = makeInitialX0(dim);
-            std::pair<Vec,double> res;
-            if (method=="gd")         res = localGD    (p.get(), rng, x0);
-            else if (method=="lbfgs") res = localLBFGS (p.get(), rng, x0);
-            else if (method=="bfgs")  res = localBFGS  (p.get(), rng, x0);
-            else                      res = localNM    (p.get(), rng, x0);
-
-            out.xbest = std::move(res.first);
-            out.fbest = res.second;
-        } else {
+        // Every method, the local methods gd/lbfgs/bfgs/nm/cg/ncg/adam included,
+        // runs through the same makeMethod()+run() path (see
+        // src/methods/local_methods.h).
+        {
             auto opt = makeMethod(method);
             if (!opt) return 3;
 
@@ -591,8 +1516,15 @@ int main(int argc, char** argv){
             opt->setGeneralOptions(cfg.g);
             opt->setTermination(cfg.t);
             opt->setInitOptions(cfg.init);
-            opt->configure(cfg.methodKV);
+            // NOTE: setEndLocalFromGlobal() must run BEFORE configure().
+            // It seeds end_local_refine_/end_local_method_ with the [global]
+            // default; configure() then overrides them if the method's own
+            // section (e.g. [de], [peao]) sets end_local_refine/end_local_method.
+            // Calling them in the opposite order (as before) made configure()'s
+            // per-method value get silently clobbered by the global default
+            // right afterwards, so end_local_refine=1 in [de]/[peao] never took effect.
             opt->setEndLocalFromGlobal(cfg.g.end_local_refine, toLower(cfg.g.end_local_method));
+            opt->configure(cfg.methodKV);
             opt->setRunIndex(r);
             if (sink) opt->setOutputStream(sink);
             // Only the first run's trajectory is logged (a single illustrative
@@ -600,9 +1532,15 @@ int main(int argc, char** argv){
             // since only whichever thread handles r==0 ever touches this stream.
             if (r == 0 && landscape_csv.is_open()) opt->setLandscapeStream(&landscape_csv);
 
-            if (r == 0) effective_pop = opt->population();
-
             auto rr = opt->run();
+            // Read initialPopulation() (snapshotted right after init(), see
+            // Optimizer::run()) rather than population(): for methods that
+            // resolve a literature-recommended, dimension-dependent default
+            // inside init() (jSO, mLSHADE-RL, NL-SHADE-LBC, LM-CMA-ES, SFCDE,
+            // ...), population() immediately after configure() still holds
+            // the global/default value, since it hasn't been overridden yet.
+            if (r == 0) effective_pop = opt->initialPopulation();
+            if (r == 0) effective_max_evals = opt->maxEvaluations();
             out.fbest   = rr.fbest;
             out.xbest   = rr.xbest;
             out.seconds = rr.seconds;
@@ -635,6 +1573,7 @@ int main(int argc, char** argv){
 #ifdef OPTIM_HAVE_OPENMP
     else {
         // -------- OpenMP parallel path --------
+        int run_error = 0; // 2 = unknown problem, 3 = unknown method
         if (cfg.g.omp_threads > 0) omp_set_num_threads(cfg.g.omp_threads);
 
         #pragma omp parallel for schedule(dynamic)
@@ -677,9 +1616,9 @@ int main(int argc, char** argv){
             iter_p95_ms.push_back(sl.iter_p95_ms);
             peak_kb.push_back(sl.peak_kb);
         }
-        if (effective_pop < 0 && isLocalMethod(method)) effective_pop = 1;
     }
     if (effective_pop < 0) effective_pop = 1;
+    if (effective_max_evals < 0) effective_max_evals = cfg.g.max_evals; // defensive fallback, e.g. RUNS==0
 
     if (old_cout_buf) std::cout.rdbuf(old_cout_buf);
     delete tee;
@@ -812,7 +1751,7 @@ int main(int argc, char** argv){
     rows_config.emplace_back("Population:",        std::to_string(std::max(effective_pop,0)));
     rows_config.emplace_back("Init distribution:", cfg.init.type);
     rows_config.emplace_back("Runs:",              std::to_string(RUNS));
-    rows_config.emplace_back("Max evals/run:",     std::to_string(cfg.g.max_evals));
+    rows_config.emplace_back("Max evals/run:",     std::to_string(effective_max_evals));
     rows_config.emplace_back("Max iters/run:",     std::to_string(cfg.g.max_iters));
     {
         std::string ruleStr = stopRuleName(cfg.t.rule);
@@ -970,11 +1909,30 @@ int main(int argc, char** argv){
     }
 
     std::string final_local = "none";
-    if (cfg.g.end_local_refine && !cfg.g.end_local_method.empty()){
-        final_local = toLower(cfg.g.end_local_method);
-        rows_local.emplace_back("Local search (in-end):", final_local);
-    } else {
-        rows_local.emplace_back("Local search (in-end):", "none");
+    {
+        // Effective end-of-run refine = [global] default, overridden by the
+        // method's own section if it sets end_local_refine/end_local_method
+        // (mirrors the precedence applied in DE::configure()/PEAO::configure()).
+        bool        eff_refine = cfg.g.end_local_refine;
+        std::string eff_method = cfg.g.end_local_method;
+
+        const auto& kv = cfg.methodKV.kv;
+        if (auto it = kv.find("end_local_refine"); it != kv.end()) {
+            try { eff_refine = (std::stoi(it->second) != 0); } catch (...) {}
+        }
+        if (auto it = kv.find("end_local_method"); it != kv.end()) {
+            eff_method = it->second;
+        }
+        eff_method = toLower(eff_method);
+        if (eff_method.empty() || eff_method == "none" || eff_method == "off" || eff_method == "0")
+            eff_refine = false;
+
+        if (eff_refine && !eff_method.empty()){
+            final_local = eff_method;
+            rows_local.emplace_back("Local search (in-end):", final_local);
+        } else {
+            rows_local.emplace_back("Local search (in-end):", "none");
+        }
     }
 
     // --------- COMPUTE label_ FOR ALL GROUPS ---------
@@ -1096,7 +2054,7 @@ int main(int argc, char** argv){
             << std::max(effective_pop,0) << ","
             << cfg.init.type << ","
             << RUNS << ","
-            << cfg.g.max_evals << ","
+            << effective_max_evals << ","
             << cfg.g.max_iters << ","
             << stopRuleName(cfg.t.rule) << ","
             << cfg.t.eps << ","
@@ -1118,8 +2076,8 @@ int main(int argc, char** argv){
             << sd_iter95 << ","
             << (m_peak_kb/1024.0) << ","
             << (sd_peak_kb/1024.0) << ","
-            << "none" << ","
-            << "none"
+            << inrun_local << ","
+            << final_local
             << "\n";
         summ_csv.flush();
     }

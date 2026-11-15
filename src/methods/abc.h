@@ -23,8 +23,18 @@ public:
 
     // Settings from the [abc] section in the configuration
     void configure(const MethodConfig& mc) override {
-        int pop_override = mc.getInt("population", pop_);
-        if (pop_override > 0) pop_ = pop_override;
+        // population=0 (or unset): literature default. Karaboga's own
+        // Scholarpedia reference article on ABC ("Artificial bee colony
+        // algorithm", scholarpedia.org) uses SN (food sources = employed
+        // bees) = 50 as its worked example, which is the value most widely
+        // reused as ABC's "standard" colony size in the follow-up
+        // literature. Previously population=0 silently fell back to
+        // [global] population (default 100) instead of ABC's own default
+        // -- fixed here. (pop_ here represents SN; onlookers = SN *
+        // onlooker_frac_, default onlooker_frac_=1.0, i.e. onlookers=SN as
+        // in the original algorithm.)
+        int pop_override = mc.getInt("population", 0);
+        pop_ = (pop_override > 0) ? pop_override : 50;
 
         onlooker_frac_ = mc.getDbl("onlooker_frac", onlooker_frac_);
         if (onlooker_frac_ < 0.0) onlooker_frac_ = 0.0;

@@ -12,7 +12,12 @@ void MPA::init(){
     iter_ = 0;
 
     const int D = prob_->dimension();
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): literature default. Faramarzi et al.'s
+    // Marine Predators Algorithm (2020) and essentially every replication
+    // study use a population/search-agent count of 30. Previously
+    // population=0 silently fell back to [global] population (default
+    // 100) instead of this documented default -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 30));
     this->setPopulation(N);
 
     X_.clear();

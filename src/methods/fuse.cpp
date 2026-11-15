@@ -278,7 +278,11 @@ void FUSE::init()
 {
     if (!prob_) return;
 
-    int N = std::max(5, (pop_override_ >= 5 ? pop_override_ : population()));
+    // population=0 (or unset): internal method, no external published
+    // literature default; N=100 is this codebase's general convention.
+    // Previously population=0 silently fell back to [global] population -- fixed here.
+    int N = std::max(5, (pop_override_ >= 5 ? pop_override_ : 100));
+
     setPopulation(N);
 
     stagn_iters_ = 0;

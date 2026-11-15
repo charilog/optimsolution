@@ -1,5 +1,6 @@
 #include "awjso.h"
 #include "init.h"
+#include <cmath>
 
 #include <numeric>
 #include <cctype>
@@ -294,7 +295,14 @@ void AWJSO::doRestart(double progress)
 // ---------------------------------------------------------------------------
 void AWJSO::configure(const MethodConfig& mc)
 {
-    int basePop = population();
+    // population=0 (or unset): jSO derivative -- inherits jSO's own
+    // literature default (Brest et al. 2017: Ninit = 25*sqrt(D)*ln(D))
+    // instead of falling back to [global] population as before.
+    int basePop = 50;
+    if (prob_) {
+        const int D = prob_->dimension();
+        if (D > 0) basePop = (int)std::llround(25.0 * std::sqrt((double)D) * std::log((double)D));
+    }
     if (basePop < 4) basePop = 4;
 
     const int pop_override = mc.getInt("population", 0);
@@ -392,7 +400,11 @@ void AWJSO::init()
     if (D <= 0) return;
 
     if (pop_init_ <= 0) {
-        pop_init_ = population();
+        // population=0 (or unset): this is a jSO derivative, so it
+        // inherits jSO's own literature default (Brest et al. 2017:
+        // Ninit = 25*sqrt(D)*ln(D)) instead of falling back to [global]
+        // population as before.
+        pop_init_ = (int)std::llround(25.0 * std::sqrt((double)D) * std::log((double)D));
         if (pop_init_ < 4) pop_init_ = 50;
         setPopulation(pop_init_);
     }

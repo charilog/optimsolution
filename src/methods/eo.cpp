@@ -50,7 +50,13 @@ void EO::init(){
     iter_ = 0;
 
     const int D = prob_->dimension();
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): literature convention. Faramarzi et al.'s
+    // Equilibrium Optimizer paper (2020) and its replication literature
+    // consistently use a population size of 30, matching the same
+    // author's Marine Predators Algorithm convention. Previously
+    // population=0 silently fell back to [global] population (default
+    // 100) instead of this documented default -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 30));
     this->setPopulation(N);
 
     X_.clear();

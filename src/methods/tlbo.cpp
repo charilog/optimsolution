@@ -10,7 +10,13 @@ void TLBO::init(){
     if (!prob_) return;
 
     const int D = prob_->dimension();
-    const int N = std::max(3, (pop_override_ >= 3 ? pop_override_ : population()));
+    // population=0 (or unset): Rao's original TLBO paper (2011), like his
+    // later Jaya algorithm, does not fix one canonical "class size" -- it
+    // is treated as a free common control parameter. We use N=30, the
+    // value most commonly seen in the TLBO benchmark literature.
+    // Previously population=0 silently fell back to [global] population
+    // (default 100) instead of this documented convention -- fixed here.
+    const int N = std::max(3, (pop_override_ >= 3 ? pop_override_ : 30));
     this->setPopulation(N);
 
     X_.clear(); FX_.clear();

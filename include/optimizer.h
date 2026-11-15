@@ -43,11 +43,47 @@ namespace optimsolution
         void setPopulation(int n) { pop_ = (n > 3 ? n : 50); }
         int  population() const { return pop_; }
 
-        void setGeneralOptions(const GeneralOptions &g)
+        // The population size actually in effect once init() has resolved it
+        // (e.g. a method-specific, dimension-dependent default computed once
+        // the problem is known). Captured right after init() in run(), i.e.
+        // before any population-size-reduction schedule (NLPSR/LPSR) has had
+        // a chance to shrink pop_. Reporting code should read this instead of
+        // population() when it needs the *initial* population size, since
+        // population() alone reflects whatever configure() set (which, for
+        // methods that defer sizing to init(), is still the global/default
+        // value at that point).
+        int  initialPopulation() const { return init_population_; }
+
+        // Reporting code (e.g. the batch summary CSV) should read this
+        // instead of GeneralOptions::max_evals when it needs the *actual*
+        // per-run budget: when "[global] max_evals = <N>xD" is used,
+        // max_evals_ ends up scaled by the problem's dimension for every
+        // method uniformly (see setGeneralOptions() below), while
+        // GeneralOptions::max_evals stays the raw, unscaled config value
+        // (N) for every method uniformly.
+        long long maxEvaluations() const { return max_evals_; }
+
+        virtual void setGeneralOptions(const GeneralOptions &g)
         {
             pop_       = g.population;
             max_iters_ = g.max_iters;
             max_evals_ = g.max_evals;
+            // BUGFIX: "[global] max_evals = <N>xD" (per-dimension budget)
+            // used to be honored only by the handful of methods that
+            // individually re-implemented this same check in their own
+            // setGeneralOptions() override (jso, cmaes, lmcmaes, ea4eig,
+            // pso, gwo, sparq, acor, rde, sa) -- every other method simply
+            // inherited this base implementation and silently kept the raw
+            // "N" from "NxD" (the "xD" suffix was dropped), instead of
+            // N * dimension. Applying the same scaling here, once, makes
+            // every method honor "NxD" the same way. This runs BEFORE any
+            // per-method override's own body (each override calls
+            // Optimizer::setGeneralOptions(g) first), so for the 10
+            // methods above this is a harmless no-op recomputation of the
+            // exact same value; their own override code is left untouched.
+            if (g.max_evals_per_dim > 0 && prob_) {
+                max_evals_ = g.max_evals_per_dim * (long long)prob_->dimension();
+            }
         }
 
         void setTermination(const TerminationOptions &t) { topt_ = t; }
@@ -100,6 +136,13 @@ namespace optimsolution
             profiler_.startRun(prob_ ? prob_->calls() : 0);
 
             init();
+            // Snapshot the population right after initialization, before any
+            // population-size-reduction schedule can shrink it. This is the
+            // value that should be reported as "the population used", for
+            // methods (jSO, mLSHADE-RL, NL-SHADE-LBC, LM-CMA-ES, SFCDE, ...)
+            // that only resolve their literature-recommended, dimension-
+            // dependent default inside init() rather than in configure().
+            init_population_ = pop_;
             logLandscapePoint();
 
             while (!terminated())
@@ -111,7 +154,12 @@ namespace optimsolution
                 if (terminated()) break;
             }
 
+            // From here on localSearch() is the optional end-of-run refinement
+            // ([global]/[method] end_local_refine), which by design runs after
+            // the main budget; see localSearch() below.
+            in_end_phase_ = true;
             end();
+            in_end_phase_ = false;
 
             profiler_.endRun(prob_ ? prob_->calls() : 0);
 
@@ -130,6 +178,20 @@ namespace optimsolution
 
         
         virtual void end() {}
+
+        // Fraction of the run budget already used, in [0,1]: the larger of
+        // iterations/max_iters and evaluations/max_evals. Schedules (inertia,
+        // step sizes, ...) must use this rather than iters_/max_iters_ alone:
+        // max_iters is normally just a large safety cap (5,000,000 in the
+        // default cfg) while the real budget is max_evals, so iters_/max_iters_
+        // stays ~0 for the whole run and the schedule never advances.
+        double progressFraction() const
+        {
+            double p = 0.0;
+            if (max_iters_ > 0) p = std::max(p, (double)iters_ / (double)max_iters_);
+            if (max_evals_ > 0 && prob_) p = std::max(p, (double)prob_->calls() / (double)max_evals_);
+            return std::min(1.0, std::max(0.0, p));
+        }
 
         bool terminated() const
         {
@@ -182,7 +244,27 @@ namespace optimsolution
                 if (prob_) f = prob_->evaluate(x0);
                 return { x0, f };
             }
-            return runLocalSearch(localName, prob_, rng_, x0);
+            // BUGFIX: in-run local searches (local_rate > 0) used to run with no
+            // evaluation cap, so a method could exceed max_evals by an arbitrary
+            // amount. They are now capped at the run budget. The end-of-run
+            // refinement (called from end()) keeps its previous, uncapped
+            // behaviour, since it is an explicit post-budget option.
+            const long long cap = in_end_phase_ ? -1LL : max_evals_;
+            if (!in_end_phase_ && prob_ && prob_->calls() >= max_evals_) {
+                double f = std::numeric_limits<double>::infinity();
+                return { x0, f };
+            }
+            // Island methods call this from inside "#pragma omp parallel for";
+            // the local searches use the shared rng_ (Nelder-Mead), so they are
+            // serialised to avoid a data race on it.
+            std::pair<Vec, double> res;
+#ifdef _OPENMP
+#pragma omp critical(optimsolution_local_search)
+#endif
+            {
+                res = runLocalSearch(localName, prob_, rng_, x0, -1, cap);
+            }
+            return res;
         }
 
         
@@ -190,6 +272,7 @@ namespace optimsolution
         std::mt19937_64 rng_{std::random_device{}()};
 
         int        pop_{100};
+        int        init_population_{0}; // pop_ snapshotted right after init(), see run()
         int        max_iters_{1000};
         long long  max_evals_{150000};
 
@@ -214,6 +297,9 @@ namespace optimsolution
 
         // --- output sink for progress lines (never owned) ---
         std::ostream* out_{&std::cout};
+
+        // --- true while end() runs (end-of-run local refinement) ---
+        bool          in_end_phase_{false};
 
         // --- optional landscape trajectory log sink (never owned) ---
         std::ostream* landscape_os_{nullptr};

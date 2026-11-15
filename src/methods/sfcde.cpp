@@ -11,14 +11,13 @@ namespace optimsolution {
 // ─────────────────────────────────────────────────────────────────────────────
 void SFCDE::configure(const MethodConfig& mc)
 {
-    int basePop = population();
-    if (basePop < 4) basePop = 50;
-
     const int pop_override = mc.getInt("population", 0);
     if (pop_override >= 4) {
         pop_init_ = pop_override;
     } else {
-        pop_init_ = basePop;
+        // population=0 (or unset): defer to the literature-recommended
+        // default, resolved once the problem dimension is known in init().
+        pop_init_ = 0;
     }
     setPopulation(pop_init_);
 
@@ -165,7 +164,10 @@ void SFCDE::init()
     const int D = prob_->dimension();
     if (D <= 0) return;
 
-    if (pop_init_ < 4) pop_init_ = 50;
+    if (pop_init_ < 4) {
+        // population=0 (or unset): literature-recommended default, NP = 10*D.
+        pop_init_ = std::max(4, 10 * D);
+    }
     setPopulation(pop_init_);
 
     Initializer initSampler;

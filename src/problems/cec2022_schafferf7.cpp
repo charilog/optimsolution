@@ -218,12 +218,17 @@ double CEC2022SchafferF7::evaluate_core(const Vec& x)
 {
     const int D = dimension();
 
+    // FIX (official-code fidelity): the official cec22_test_func.cpp
+    // schaffer_F7_func() calls sr_func(x, z, ...) -- which stores the
+    // shifted vector in the global y and the ROTATED vector in z -- but then
+    // evaluates the formula on y, i.e. on the shifted, NON-rotated vector
+    // (the rotated z is overwritten). Every published CEC 2022 result was
+    // produced with that code, so F3 is evaluated on y = x - o here too.
+    // (The previous version used the rotated vector and disagreed with the
+    // official code by up to 25 percent.) rotation_ is still loaded but unused.
     Vec y(D, 0.0);
     for (int i = 0; i < D; ++i) {
-        const double xi = x[i] - shift_[i];
-        for (int r = 0; r < D; ++r) {
-            y[r] += rotation_[r * D + i] * xi;
-        }
+        y[i] = x[i] - shift_[i];
     }
 
     double sum = 0.0;
@@ -244,12 +249,10 @@ void CEC2022SchafferF7::gradient_core(const Vec& x, Vec& g)
     const int D = dimension();
     g.assign(D, 0.0);
 
+    // analytic gradient; no rotation (same as the objective, see above)
     Vec y(D, 0.0);
     for (int i = 0; i < D; ++i) {
-        const double xi = x[i] - shift_[i];
-        for (int r = 0; r < D; ++r) {
-            y[r] += rotation_[r * D + i] * xi;
-        }
+        y[i] = x[i] - shift_[i];
     }
 
     const double eps = 1e-15;
@@ -292,12 +295,9 @@ void CEC2022SchafferF7::gradient_core(const Vec& x, Vec& g)
         grad_y[k] = coeff * gy;
     }
 
+    // dy/dx = I (no rotation)
     for (int j = 0; j < D; ++j) {
-        double gx = 0.0;
-        for (int r = 0; r < D; ++r) {
-            gx += rotation_[r * D + j] * grad_y[r];
-        }
-        g[j] = gx;
+        g[j] = grad_y[j];
     }
 }
 

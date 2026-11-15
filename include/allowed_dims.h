@@ -28,13 +28,18 @@ inline std::vector<int> getAllowedDimsOrEmpty(std::string name) {
     static const std::vector<int> kCec2017Dims = {10, 30, 50};
     if (name.rfind("cec2017f", 0) == 0) return kCec2017Dims;
 
-    // CEC2022 (all 12 functions in this codebase): D = 10, 20 only.
-    // (Note: the official CEC2022 technical report's generic convention
-    // also allows D=2, but this codebase's actual CEC2022 implementations
-    // only support D=10/20 -- confirmed directly against the running
-    // application's behavior, which is authoritative over the report's
-    // generic convention here.)
-    static const std::vector<int> kCec2022Dims = {10, 20};
+    // CEC2022: the three hybrid functions embed data for D = 10, 20 only;
+    // the other nine (zakharov, rosenbrock, schafferf7,
+    // noncontinuousrastrigin, levy, composition1/2/6/7) also embed the
+    // official D = 2 data, as in the official CEC2022 package (hybrid
+    // functions are not defined for D = 2 there either).
+    // CORRECTION: this list used to be {10, 20} for all twelve, which hid
+    // the valid D = 2 of nine functions. Verified by initialising every
+    // function at D = 1..100 (accepted exactly at the dimensions below) and
+    // by f(o) = F* at the shift vector o for D = 2, 10 and 20.
+    static const std::vector<int> kCec2022Dims       = {2, 10, 20};
+    static const std::vector<int> kCec2022HybridDims = {10, 20};
+    if (name.rfind("cec2022hybrid", 0) == 0) return kCec2022HybridDims;
     if (name.rfind("cec2022", 0) == 0) return kCec2022Dims;
 
     return {};

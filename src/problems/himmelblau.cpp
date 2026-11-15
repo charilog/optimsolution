@@ -43,24 +43,11 @@ double Himmelblau::evaluate_core(const Vec& x)
 
 void Himmelblau::gradient_core(const Vec& x, Vec& g)
 {
-    // Central differences with eps = (1e-18)^(1/3) * max(1, |x_i|)
-    const int n = static_cast<int>(x.size());
-    g.assign(n, 0.0);
-
-    Vec xt = x;  // local copy
-
-    for (int i = 0; i < n; ++i) {
-        const double eps = std::cbrt(1e-18) * dmax(1.0, std::fabs(x[i]));
-
-        xt[i] = x[i] + eps;
-        const double f1 = evaluate_core(xt);
-
-        xt[i] = x[i] - eps;
-        const double f2 = evaluate_core(xt);
-
-        g[i] = (f1 - f2) / (2.0 * eps);
-        xt[i] = x[i];
-    }
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

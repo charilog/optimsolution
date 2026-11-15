@@ -70,7 +70,10 @@ private:
     std::vector<double> Fi_, CRi_;
 
     // RNG
-    std::mt19937_64 rng_{std::random_device{}()};
+    // BUGFIX: this class used to declare its own 'std::mt19937_64 rng_'
+    // seeded from std::random_device, hiding Optimizer::rng_. setSeed()
+    // (i.e. [global] seed_base) therefore had no effect and runs were not
+    // reproducible. It now uses the inherited, seeded Optimizer::rng_.
     std::uniform_real_distribution<double> U01_{0.0, 1.0};
     std::normal_distribution<double> N01_{0.0, 1.0};
     std::uniform_int_distribution<int> DIpop_;

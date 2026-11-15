@@ -8,6 +8,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# All source files are UTF-8 (comments contain Greek / math symbols, the GUI
+# has Unicode string literals). Without /utf-8 MSVC reads them in the system
+# code page (e.g. 1253 Greek): warning C4819 and garbled non-ASCII literals.
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 # Do NOT set CMAKE_BUILD_TYPE here (VS is multi-config).
 # Use: cmake --build build --config Debug/Release
 
@@ -174,6 +181,7 @@ add_library(optimcore
 	src/problems/weatherirrigation.cpp	
 	src/problems/smartportenergy.cpp		
 	src/problems/datacentercooling.cpp	
+	src/problems/interceptorguidance.cpp	
 	src/methods/arq.cpp
     src/methods/de.cpp
     src/methods/pso.cpp
@@ -195,6 +203,7 @@ add_library(optimcore
     src/methods/mewoa.cpp
     src/methods/rdex.cpp
     src/methods/rde.cpp
+    src/methods/peao.cpp
     src/methods/abc.cpp
     src/methods/gwo.cpp
     src/methods/egco.cpp
@@ -239,6 +248,7 @@ add_library(optimcore
 	src/methods/ujso.cpp	
 	src/methods/mjso.cpp
 	src/methods/ude.cpp
+	src/methods/atde.cpp
 	src/methods/sfcde.cpp
 	src/methods/awjso.cpp
 	src/methods/gahs.cpp	
@@ -250,16 +260,23 @@ add_library(optimcore
 	src/methods/lracmaes.cpp
 	src/methods/lmcmaes.cpp
 	src/methods/sparq.cpp	
+	src/methods/lsrtde.cpp
+	src/methods/ide.cpp
+	src/methods/imspsodni.cpp
+	src/methods/spso2011.cpp
+	src/methods/hclpso.cpp
+	src/methods/olpso.cpp
+	src/methods/glpso.cpp
+	src/methods/apso.cpp
+	src/methods/dmspso.cpp
 	
-    src/methods/gd.cpp
-    src/methods/nm.cpp
-    src/methods/lbfgs.cpp
-    src/methods/bfgs.cpp
+    src/methods/local_methods.cpp
 
     src/methods/nsga2.cpp
     src/methods/moead.cpp
     src/methods/mopso.cpp
 
+    src/problems/nn_problem.cpp
     src/localsearch.cpp
     src/factory.cpp
     src/options.cpp
@@ -268,6 +285,7 @@ add_library(optimcore
     src/sensitivity.cpp
     src/init.cpp
     src/profiler.cpp
+    src/uscore.cpp
 )
 
 target_include_directories(optimcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -287,7 +305,7 @@ endif()
 # ---------------------------------------------------------------------
 # CLI executable (console subsystem)
 # ---------------------------------------------------------------------
-add_executable(optimsolution src/main.cpp)
+add_executable(optimsolution src/main.cpp src/mode_nnlandscape.cpp src/mode_portfolio.cpp src/mode_complexity.cpp)
 target_link_libraries(optimsolution PRIVATE optimcore)
 
 # ---------------------------------------------------------------------

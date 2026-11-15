@@ -35,9 +35,9 @@ void EGCO::ensureBounds(Vec& x)
 // Progress in [0,1] based on iterations
 double EGCO::progress01() const
 {
-    if (max_iters_ <= 0) return 0.0;
-    double t = std::min<double>(1.0, std::max<double>(0.0, double(iters_) / double(max_iters_)));
-    return t;
+    // BUGFIX: used iters_/max_iters_ only (max_iters is a 5e6 safety cap; the
+    // real budget is max_evals), so the progress stayed ~0 for the whole run.
+    return progressFraction();
 }
 
 // Finds the three best indices (alpha, beta, delta)
@@ -179,6 +179,7 @@ void EGCO::one_iteration()
     }
 
     // GROUPER step: the remaining individuals
+    const double prog = std::min(1.0, std::max(0.0, progress01()));
     for (int t=eel_n; t<N; ++t){
         int i = order[t];
         if (i == ia) continue;
@@ -194,9 +195,20 @@ void EGCO::one_iteration()
             if (lo > hi) std::swap(lo,hi);
             range = (hi - lo);
 
-            double attract = grp_beta_  * (best_x_[j]     - X_[i][j]);
-            double shrink  = grp_gamma_ * (centroidTop[j] - X_[i][j]);
-            double jitter  = grp_jitter_ * range * std::normal_distribution<double>(0.0,1.0)(rng_);
+            // FIX (logic): the deterministic coefficients grouper_beta = 1.5 and
+            // grouper_gamma = 0.7 sum to 2.2, so the move OVERSHOOTS the leaders:
+            // the new distance to best/centroid was about 1.2x the old one, i.e.
+            // the grouper step diverged and only the jitter (a FIXED fraction
+            // of the box width) could ever be accepted -- the method could not
+            // converge (sphere-30D: f ~ 1e4). The coefficients are now random
+            // r*beta, r*gamma with r ~ U(0,1) (expected contraction factor
+            // 1 - 0.75 - 0.35 = -0.1), and the jitter is annealed by (1 - progress)
+            // so that the search can refine towards the end of the budget.
+            const double r1 = std::uniform_real_distribution<double>(0.0,1.0)(rng_);
+            const double r2 = std::uniform_real_distribution<double>(0.0,1.0)(rng_);
+            double attract = r1 * grp_beta_  * (best_x_[j]     - X_[i][j]);
+            double shrink  = r2 * grp_gamma_ * (centroidTop[j] - X_[i][j]);
+            double jitter  = grp_jitter_ * (1.0 - prog) * range * std::normal_distribution<double>(0.0,1.0)(rng_);
             y[j] = X_[i][j] + attract + shrink + jitter;
         }
 

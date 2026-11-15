@@ -12,7 +12,13 @@ void MVO::init(){
     iter_ = 0;
 
     const int D = prob_->dimension();
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): no single canonical number was confirmed
+    // directly from Mirjalili, Mirjalili & Hatamlou's 2016 MVO paper
+    // itself; we use N=30, the same benchmark convention this author's
+    // other algorithms (GWO/WOA/MFO/SCA) use in this codebase. Previously
+    // population=0 silently fell back to [global] population (default
+    // 100) instead of this convention -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 30));
     this->setPopulation(N);
 
     X_.clear();

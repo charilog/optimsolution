@@ -13,10 +13,27 @@ public:
 	std::string methodShortName() const override { return "gwo"; }
 	std::string methodFullName()  const override { return "Grey Wolf Optimizer"; }
 
+    // Opt-in to "[global] max_evals = <N>xD" (budget scales with the
+    // problem's dimension) -- see options.h. Every other method is
+    // unaffected by this override existing here.
+    void setGeneralOptions(const GeneralOptions& g) override {
+        Optimizer::setGeneralOptions(g);
+        if (g.max_evals_per_dim > 0 && prob_) {
+            max_evals_ = g.max_evals_per_dim * (long long)prob_->dimension();
+        }
+    }
+
     // Settings from [gwo]
     void configure(const MethodConfig& mc) override {
-        int pop_override = mc.getInt("population", pop_);
-        if (pop_override > 0) pop_ = pop_override;
+        // population=0 (or unset): literature default (Mirjalili, Mirjalili &
+        // Lewis, "Grey Wolf Optimizer," Adv. Eng. Softw. 69 (2014)) -- the
+        // paper's own benchmark experiments use 30 search agents throughout,
+        // and this has become the near-universal convention for GWO in the
+        // follow-up literature. Previously population=0 silently fell back to
+        // whatever [global] population was (default 100), not GWO's own
+        // default -- fixed here.
+        int pop_override = mc.getInt("population", 0);
+        pop_ = (pop_override > 0) ? pop_override : 30;
 
         a_start_ = mc.getDbl("a_start", a_start_);
         a_end_   = mc.getDbl("a_end",   a_end_);

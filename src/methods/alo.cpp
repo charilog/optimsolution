@@ -63,7 +63,12 @@ void ALO::init(){
     if (!prob_) return;
 
     const int D = prob_->dimension();
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): literature default. Mirjalili's Ant Lion
+    // Optimizer paper (2015) follows the same benchmark convention as the
+    // rest of this author's algorithm family: 30 search agents (ants +
+    // antlions). Previously population=0 silently fell back to [global]
+    // population (default 100) instead of this documented default -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 30));
     this->setPopulation(N);
 
     X_.clear(); FX_.clear();

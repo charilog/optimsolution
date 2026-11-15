@@ -62,9 +62,13 @@ void GDE::init()
 
     const int D = prob_->dimension();
 
-    N_ = population();
-    if (N_ < 4)        N_ = std::max(pop_init_, 4);
+    // population=0 (or unset): configure() already correctly retains this
+    // method's own compiled default (pop_init_=40) in that case -- the bug
+    // was here in init(), which discarded it and used [global] population()
+    // instead. Fixed to use pop_init_ directly.
+    N_ = std::max(pop_init_, 4);
     if (N_ < pop_min_) N_ = pop_min_;
+
 
     Optimizer::setPopulation(N_);
 

@@ -140,46 +140,11 @@ double AntennaArray::evaluate_core(const Vec& x) {
 // -----------------------------------------------------------------------------
 
 void AntennaArray::gradient_core(const Vec& x, Vec& g) {
-    g.assign(12, 0.0);
-
-    const int i  = last_imax_;      // θ* index
-    const double ct = cos_th[i];
-    const double st = sin_th[i];
-
-    // Compute S and e^{jα_k} at θ*
-    std::complex<double> S;
-    std::vector<std::complex<double>> ej;
-    const double af = array_factor_norm_at_theta(
-        ct, st, cos_tk, sin_tk, x, &S, &ej
-    );
-
-    if (af <= 0.0) return; // degenerate case → zero gradient
-
-    const double Nf = 6.0;
-    const double invN = 1.0 / Nf;
-    const double inv_absS = 1.0 / (af * Nf); // |S| = af * N
-
-    // U = S* / |S|
-    const std::complex<double> U = std::conj(S) * inv_absS;
-
-    for (int k = 0; k < 6; ++k) {
-        // cos(θ - θ_k)
-        const double cos_t_minus_tk = ct * cos_tk[k] + st * sin_tk[k];
-
-        // common scalar = -Im( U * e^{jα_k} )
-        const double common = -std::imag(U * ej[k]);
-
-        // d|S|/dr_k = common * (2π cos(...))
-        const double d_absS_dr   = common * (2.0 * pi() * cos_t_minus_tk);
-
-        // φ_k = deg * π/180 ⇒ dφ/d(deg) = π/180
-        const double d_absS_dphi = common;
-        const double d_absS_ddeg = d_absS_dphi * (pi()/180.0);
-
-        // f = |S|/N ⇒ divide by N
-        g[k]     = d_absS_dr   * invN; // radii
-        g[k + 6] = d_absS_ddeg * invN; // phases in degrees
-    }
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

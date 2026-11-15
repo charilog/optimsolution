@@ -44,7 +44,14 @@ void HBA::init(){
     if (!prob_) return;
 
     const int D = prob_->dimension();
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): literature default. Hashim et al.'s Honey
+    // Badger Algorithm paper (2022) uses a population of N=30 in its
+    // worked example/experiments. Previously population=0 silently fell
+    // back to [global] population (default 100) instead of this
+    // documented default -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 30));
+
+
     this->setPopulation(N);
 
     X_.clear(); FX_.clear();

@@ -72,9 +72,13 @@ void mLSHADE_RL::init()
     // If a per-method population exists, it is enforced again.
     if (pop_cfg_ > 0) {
         Optimizer::setPopulation(pop_cfg_);
+        pop_init_ = std::max(4, pop_cfg_);
+    } else {
+        // population=0 (or unset): literature-recommended default
+        // (LSHADE family, Tanabe & Fukunaga 2014), NPinit = 18*D.
+        pop_init_ = std::max(4, 18 * D);
+        Optimizer::setPopulation(pop_init_);
     }
-
-    pop_init_ = std::max(4, Optimizer::population());
 
     Initializer initSampler;
     initSampler.configure(initopt_);

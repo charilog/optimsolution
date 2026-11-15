@@ -25,7 +25,13 @@ void MFO::init(){
     if (!prob_) return;
 
     const int D = prob_->dimension();
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): literature default. Mirjalili's Moth-Flame
+    // Optimization family of algorithms (GWO, WOA, MFO, SCA, ...) uses a
+    // consistent benchmark convention of 30 search agents/moths across
+    // their original papers' experiments. Previously population=0
+    // silently fell back to [global] population (default 100) instead of
+    // this documented default -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 30));
     this->setPopulation(N);
 
     X_.clear(); FX_.clear();

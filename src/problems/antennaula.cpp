@@ -96,26 +96,11 @@ double AntennaULA::evaluate_core(const Vec& x) {
 
 // Numerical central-difference gradient (faithful to original implementation)
 void AntennaULA::gradient_core(const Vec& x, Vec& g) {
-    const int N = dimension();
-    g.assign(N, 0.0);
-
-    const double rel = 1e-6, abs = 1e-6;
-    Vec xt = x;
-
-    for (int i = 0; i < N; ++i) {
-        double h = std::max(abs, std::abs(x[i]) * rel);
-
-        // keep inside bounds
-        if (x[i] + h > hi_[i]) h = std::min(h, hi_[i] - x[i]);
-        if (x[i] - h < lo_[i]) h = std::min(h, x[i] - lo_[i]);
-        if (h <= 0.0) { g[i] = 0.0; continue; }
-
-        xt[i] = x[i] + h; const double fp = evaluate_core(xt);
-        xt[i] = x[i] - h; const double fm = evaluate_core(xt);
-        xt[i] = x[i];
-
-        g[i] = (fp - fm) / (2.0 * h);
-    }
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

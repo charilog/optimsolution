@@ -81,7 +81,12 @@ void UARQ::init(){
     if (!prob_) return;
 
     const int D = prob_->dimension();
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): internal method (this codebase's own ARQ
+    // family), no external published literature default; N=100 is this
+    // codebase's general convention. Previously population=0 silently
+    // fell back to [global] population -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 100));
+
     pop_init_ = N;
 
     if (pop_min_ > pop_init_) pop_min_ = pop_init_;

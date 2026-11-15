@@ -14,8 +14,14 @@ public:
 	std::string methodFullName()  const override { return "Giant Armadillo Optimizer"; }
 
     void configure(const MethodConfig& mc) override {
-        int po = mc.getInt("population", pop_);
-        if (po > 0) pop_ = po;
+        // population=0 (or unset): Dehghani et al.'s GAO paper (2023)
+        // specifies "Set GAO population size (N)" without fixing one
+        // canonical number; we use N=100, this codebase's general
+        // convention (matching the same author-group's other algorithms).
+        // Previously population=0 silently fell back to [global]
+        // population (default 100) -- fixed here.
+        int po = mc.getInt("population", 0);
+        pop_ = (po > 0) ? po : 100;
 
         burrow_frac_ = mc.getDbl("burrow_frac", burrow_frac_);
         roll_frac_   = mc.getDbl("roll_frac",   roll_frac_);

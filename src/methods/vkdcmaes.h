@@ -12,65 +12,34 @@ namespace optimsolution {
 
 struct MethodConfig;
 
-// VkD-CMA-ES -- restricted covariance-matrix-adaptation CMA-ES with a
-// diagonal-plus-rank-k model, C = D(I + sum_{j=1}^k v_j v_j^T)D.
+// VkD-CMA-ES -- projection-based restricted covariance matrix adaptation,
+// C = D (I + sum_{j<k} s_j v_j v_j^T) D with an online-adapted rank k.
 //
-// References (see class-level notes below for exactly what is, and is
-// not, taken verbatim from each):
-//   Akimoto, Y.; Auger, A.; Hansen, N. "Comparison-Based Natural Gradient
-//     Optimization in High Dimension." GECCO 2014. -- introduces VD-CMA,
-//     the k=1 special case of this model, with a full derivation from the
-//     Information-Geometric-Optimization / natural-gradient framework and
-//     an O(d) closed-form update (their Theorem 3.6). This part is
-//     implemented here VERBATIM from the paper's equations.
-//   Akimoto, Y.; Hansen, N. "Projection-Based Restricted Covariance
-//     Matrix Adaptation for High Dimension." GECCO 2016. -- generalises
-//     VD-CMA to rank k > 1 with an online mechanism that grows/shrinks k
-//     automatically ("VkD-CMA"). The full derivation of the joint k-vector
-//     natural gradient and the exact online model-selection criterion for
-//     k were NOT accessible in verifiable form while implementing this
-//     (unlike the k=1 GECCO'14 paper, whose complete equations were
-//     retrieved and independently numerically verified -- see the
-//     sampling-covariance check in the delivery notes). Implementing an
-//     unverified reconstruction of that specific mechanism carried a real
-//     risk of the same kind of subtle, hard-to-notice error found and
-//     fixed elsewhere in this project (e.g. the DG2 grouping bug, the CSO
-//     phi instability). Rather than guess, the k>1 behaviour here is a
-//     clearly-labelled, self-consistent EXTENSION of the verified k=1
-//     mathematics (see below) instead of a claimed reproduction of
-//     Akimoto & Hansen's specific unpublished-here mechanism.
+// References:
+//   Akimoto, Y. and Hansen, N., 2016. "Projection-based restricted covariance
+//     matrix adaptation for high dimension." GECCO 2016, pp. 197-204.
+//   Akimoto, Y. and Hansen, N., 2016. "Online model selection for restricted
+//     covariance matrix adaptation." PPSN XIV, pp. 3-13.
 //
-// What is exact (from the GECCO'14 paper, k=1 case), applied per stored
-// vector v_j:
-//   - the sampling transform y = z + [(sqrt(1+||v||^2)-1)/||v||^2] <z,v> v
-//     (verified numerically to reproduce Cov(y) = I + vv^T -- the paper's
-//     printed formula omits a "/||v||^2" that is needed; this is very
-//     likely a typesetting/OCR artefact of the source, not a paper error)
-//   - the O(d) natural-gradient computation of Theorem 3.6 for updating v
-//     and the diagonal D, including the numerically-stabilising alpha/A/b
-//     correction of Lemma 3.4 / Proposition 3.5
-//   - the cumulation (p_sigma, p_c, h_sigma) and step-size control, shared
-//     with standard (mu/mu_w,lambda)-CMA-ES
-//   - the VD-CMA-specific learning-rate rescaling c_sigma, c_1, c_mu
-//
-// What is this implementation's own extension (k>1, "adaptive" k):
-//   - k vectors v_1..v_k are each updated via an INDEPENDENT copy of the
-//     verified k=1 update above (not a jointly-derived k-vector natural
-//     gradient), applied SEQUENTIALLY for sampling -- the same style of
-//     approximation this framework's LM-MA-ES uses for its m stored
-//     vectors, and which the LM-MA-ES paper itself acknowledges is not
-//     exactly measure-preserving for non-orthogonal stored directions.
-//   - each v_j gets its OWN exponentially-spaced learning rate (inspired
-//     by LM-MA-ES's multi-timescale m_j vectors), so different vectors
-//     specialise to different update speeds instead of competing for the
-//     same one.
-//   - k grows (up to k_max = O(log n)) when the newest vector's norm
-//     stays above a threshold for several generations in a row (evidence
-//     that the current model still has useful, unexploited anisotropic
-//     signal left to capture) and is otherwise held fixed; this is a
-//     simple, transparent heuristic capturing the general spirit of
-//     online rank selection, not a reproduction of the paper's specific
-//     (unverified, here) criterion.
+// REWRITE: the previous implementation was, by its own description, NOT the
+// published algorithm but a self-made "extension" (k independent copies of
+// the k=1 VD-CMA update and a heuristic rank growth), and it did not work:
+// on a shifted 10-D sphere it stalled at f ~ 1.3e3 after 1,600 of 20,000
+// evaluations. This version is a line-by-line port of the authors' official
+// algorithm (Y. Akimoto's reference Python code, as distributed in pypop7's
+// optimizers/nes/vkdcma.py), which reaches f ~ 1e-16 on the same problem:
+//   * sampling z = (N(0,I) + sum_j N(0,1) sqrt(s_j) v_j) .* d, x = m + sigma z
+//   * projection of the rank-(k + mu + 1) update matrix onto rank k via the
+//     eigen-decomposition of U^T U (or U U^T), learning rates
+//     c1 = 2/(n(k+1)+n+2(k+2)+mu_eff), cmu = ..., cc = sqrt(c1)
+//   * step-size adaptation by mirrored injection of the last mean shift
+//     (two-point / rank-based success, c_s = 0.3, d_s = sqrt(n))
+//   * online increase / decrease of k.
+// Framework adaptations: initial sigma = sigma0 * (mean box width); initial
+// mean sampled through the [init] Initializer (uniform by default, as in the
+// reference when no mean is given); sampled points are clipped to the box
+// and the update uses the clipped point (Lamarckian repair, as this
+// framework's CMA-ES), since the reference code is unconstrained.
 class VkDCMAES : public Optimizer {
 public:
     VkDCMAES() = default;
@@ -78,7 +47,7 @@ public:
 
     std::string methodShortName() const override { return "vkdcmaes"; }
     std::string methodFullName()  const override {
-        return "VkD-CMA-ES (diagonal + adaptive rank-k covariance model)";
+        return "VkD-CMA-ES (projection-based restricted CMA, Akimoto & Hansen 2016)";
     }
 
     void setEndLocalFromGlobal(bool enable, const std::string& method) override {
@@ -98,59 +67,43 @@ private:
     using Vec = std::vector<double>;
 
     double safeEval(const Vec& x);
-    void   ensureBounds(Vec& x) const;
-
-    // Applies the sampling transform for ONE stored vector v_j to a
-    // (partially transformed) vector y in place: y <- y + c_j <y,v_j> v_j.
-    void applyVjSample(const Vec& vj, double vj_norm2, Vec& y) const;
-
-    // Theorem 3.6's O(d) natural-gradient computation for ONE vector v_j
-    // and the shared diagonal D, given ycoord = D^{-1}(x-m)/sigma.
-    // Writes the natural-gradient updates into gs (for theta_D) and gt
-    // (for v_j, still needing the ||v_j||^{-1} scale applied by the caller).
-    void naturalGradientOneVector(const Vec& ycoord, const Vec& vj, double vj_norm2,
-                                   Vec& gs, Vec& gt) const;
+    void   clipToBounds(Vec& x) const;
+    void   setLearningRates();                 // _get_lr(k)
+    double logDet() const;                     // _get_det(d, s)
+    double mahalanobisSqOfDx() const;          // _get_m(d_x, d, v, s)
+    // symmetric eigen-decomposition (cyclic Jacobi): A (m x m, row-major)
+    // -> eigenvalues ev, eigenvectors as COLUMNS of V (row-major m x m)
+    static void symEig(std::vector<double> A, int m, Vec& ev, std::vector<double>& V);
 
 private:
     // --- configuration ---
     int    lambda_cfg_{-1};
-    int    k_cfg_{-1};     // fixed k if >0; else adaptive starting at k_init_
-    int    k_init_{1};
-    int    k_max_cfg_{-1}; // <=0 -> auto O(log n)
     double sigma0_{0.3};   // initial step, as a fraction of the average box range
-    int    grow_patience_{5}; // generations of sustained signal before k grows
 
-    // --- derived, fixed once D (dimension) is known ---
-    int    lambda_{0};
-    int    mu_{0};
+    // --- strategy parameters ---
+    int    n_{0}, lambda_{0}, mu_{0};
+    Vec    w_;
     double mu_eff_{0.0};
-    std::vector<double> w_;
-    double c_sigma_{0.0}, d_sigma_{0.0};
-    double c_c_{0.0}, c1_{0.0}, cmu_{0.0};
-    int    k_max_{0};
+    double c1_{0.0}, cmu_{0.0}, cc_{0.0};
+    double cs_{0.3}, ds_{1.0};
 
-    // --- algorithm state ---
-    int    t_{0};
+    // --- state ---
     Vec    mean_;
-    double sigma_{0.3};
-    Vec    Dvec_;                 // diagonal of D, size n
-    std::vector<Vec> V_;          // k stored vectors v_j, each size n
-    std::vector<double> c_v_;     // per-vector learning rate (LM-MA-ES-style spacing)
-    int    k_{1};                 // current active rank
-    int    grow_streak_{0};
+    double sigma_{1.0};
+    Vec    d_;                    // diagonal scaling, size n
+    std::vector<Vec> v_;          // k rows of size n
+    Vec    s_;                    // size n (first k_a used)
+    Vec    pc_;                   // evolution path, size n
+    Vec    dx_;                   // last weighted mean step (in z space)
+    double ps_{0.0};
+    int    k_{0}, ka_{0}, ki_{0};
+    bool   injection_{false};
+    double l_s_{0.0};
+    Vec    l_d_, l_c_;
 
-    Vec    p_sigma_;
-    Vec    p_c_;
-
-    // --- offspring buffers ---
-    std::vector<Vec>    Z_;   // raw z_i
-    std::vector<Vec>    Y_;   // transformed y_i = (I+sum v_j v_j^T)^{1/2}-ish sample
+    // --- offspring ---
+    std::vector<Vec>    Z_;
     std::vector<double> F_;
-
-    // Scratch buffers for naturalGradientOneVector(), reused across calls
-    // to avoid repeated heap allocation in the hot per-(vector,individual)
-    // loop (this call happens k*mu times per generation).
-    mutable Vec scratch_s_, scratch_t_, scratch_Ainv_, scratch_Ainv_v_, scratch_Ainv_s_;
 
     // --- in-run / final local search ---
     std::string local_method_{"lbfgs"};

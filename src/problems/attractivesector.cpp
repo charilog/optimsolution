@@ -141,25 +141,11 @@ double AttractiveSector::evaluate_core(const Vec& x)
 
 void AttractiveSector::gradient_core(const Vec& x, Vec& g)
 {
-    // Numeric forward differences, consistent with the rest of this codebase
-    // (e.g. gallagher101.cpp) — the analytic gradient through T_osz and the
-    // rotation is not worth the added complexity/risk for a benchmark
-    // function that exists to be optimized derivative-free.
-    g.assign(D_, 0.0);
-    double f0 = evaluate_core(x);
-    Vec xt = x;
-
-    for (int k = 0; k < D_; ++k) {
-        double h = std::max(1e-6, std::abs(x[k]) * 1e-6);
-        if (x[k] + h > 100.0)
-            h = std::min(h, 100.0 - x[k]);
-        if (h <= 0.0) { g[k] = 0.0; continue; }
-
-        xt[k] = x[k] + h;
-        double f1 = evaluate_core(xt);
-        g[k] = (f1 - f0) / h;
-        xt[k] = x[k];
-    }
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

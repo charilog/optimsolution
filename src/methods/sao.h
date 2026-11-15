@@ -50,6 +50,7 @@ private:
     // ---- BSS-like simple stop: best_f unchanged for sim iterations within eps ----
     double bss_eps_{1e-12}; // optional from cfg key "eps"
     int    bss_sim_{12};    // optional from cfg key "sim"
+    int    internal_stop_mode_{-1};   // internal_stop: -1 auto, 0 off, 1 on (see island_stop.h)
 
     // ----- State -----
     std::vector<Vec>    X_;

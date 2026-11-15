@@ -1,4 +1,5 @@
 #include "sao.h"
+#include "island_stop.h"
 #include "init.h"   // Only in the .cpp to avoid include cycles.
 
 #include <algorithm>
@@ -36,14 +37,21 @@ void SAO::configure(const MethodConfig& mc){
     // Optional: same names as the stop rule for compatibility (not required in cfg).
     bss_eps_           = mc.getDbl("eps", bss_eps_);
     bss_sim_           = mc.getInt("sim", bss_sim_);
+    internal_stop_mode_ = parseIslandStopMode(mc, internal_stop_mode_, "internal_stop");
 }
 
 void SAO::init(){
     if (!prob_) return;
 
-    // Applies the per-method population override again (safety).
+    // population=0 (or unset): literature default. Salawudeen et al.'s
+    // Smell Agent Optimization paper (2021) uses "30 search agents" in
+    // its CEC benchmark experiments. Previously population=0 silently
+    // fell back to [global] population (default 100) instead of this
+    // documented default -- fixed here.
     if (pop_cfg_ > 0) Optimizer::setPopulation(pop_cfg_);
+    else Optimizer::setPopulation(30);
     final_population_ = std::max(4, Optimizer::population());
+
 
     const int D = prob_->dimension();
 
@@ -195,14 +203,15 @@ void SAO::update_simple_bss_(){
         last_best_f_ = best_f_;
         same_best_iters_ = 1;
     }
-    if (same_best_iters_ >= bss_sim_){
+    if (same_best_iters_ >= bss_sim_ && islandStopEnabled(internal_stop_mode_, topt_)){
         stopped_ = true;
         // Comment translated from Greek.
         // Comment translated from Greek.
-        if (prob_) {
-            // Comment translated from Greek.
-            max_evals_ = prob_->calls();
-        }
+        // BUGFIX: used to set max_evals_ = calls() to force termination, which
+        // also changed the budget REPORTED after the run. Also, this internal
+        // stagnation stop used to apply even with [stop] rule = maxevals; it
+        // is now controlled by "internal_stop = auto|1|0" (see island_stop.h).
+        stopReached_ = true;
     }
 }
 
@@ -210,8 +219,8 @@ void SAO::update_simple_bss_(){
 void SAO::one_iteration(){
     if (!prob_) return;
 
-    // Comment translated from Greek.
     if (stopped_) {
+        stopReached_ = true;
         return;
     }
 

@@ -84,26 +84,11 @@ double Katsuura::evaluate_core(const Vec& x)
 
 void Katsuura::gradient_core(const Vec& x, Vec& g)
 {
-    const int n = static_cast<int>(x.size());
-    g.assign(n, 0.0);
-
-    if (n == 0)
-        return;
-
-    const double f0 = evaluate_core(x);
-    Vec xt = x;
-
-    // forward-diff step (small; Katsuura is non-differentiable in places)
-    for (int i = 0; i < n; ++i) {
-        double h = std::max(1e-8, std::abs(x[i]) * 1e-6);
-
-        xt[i] = x[i] + h;
-        const double f1 = evaluate_core(xt);
-        g[i] = (f1 - f0) / h;
-
-        // restore
-        xt[i] = x[i];
-    }
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

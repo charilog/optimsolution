@@ -5,34 +5,71 @@
 
 namespace optimsolution {
 
-double RDE::sampleTruncGaussian(double mean, double sigma, double lo, double hi) {
-    std::normal_distribution<double> nd(mean, sigma > 0.0 ? sigma : 1e-6);
-    for (int t = 0; t < 25; ++t) {
-        const double v = nd(rng_);
-        if (v >= lo && v <= hi) return v;
-    }
-    return std::min(std::max(mean, lo), hi);
+// Line references "RDE.cpp:NNN" point to the authors' code/rde-cec2024/RDE.cpp (v1.1.0).
+
+namespace {
+
+// Ordering of three donors as in the authors' EB_order() (RDE.cpp:422-501),
+// including its tie-breaking: returns best, medium, worst.
+struct Trio { const Vec* best; const Vec* mid; const Vec* worst; };
+Trio orderTrio(const Vec* p1, double f1, const Vec* p3, double f3, const Vec* p4, double f4) {
+    if (f1 <= f3 && f1 <= f4) return (f3 <= f4) ? Trio{p1, p3, p4} : Trio{p1, p4, p3};
+    if (f3 <= f1 && f3 <= f4) return (f1 <= f4) ? Trio{p3, p1, p4} : Trio{p3, p4, p1};
+    if (f4 <= f1 && f4 <= f3) return (f1 <= f3) ? Trio{p4, p1, p3} : Trio{p4, p3, p1};
+    return Trio{p1, p3, p4}; // only reachable with NaN fitness values
 }
 
-double RDE::sampleCauchyParam(double loc, double scale, double lo, double hi) {
-    std::cauchy_distribution<double> cd(loc, scale > 0.0 ? scale : 1e-6);
-    for (int t = 0; t < 25; ++t) {
-        const double v = cd(rng_);
-        if (v >= lo && v <= hi) return v;
-    }
-    return std::min(std::max(loc, lo), hi);
+std::vector<int> ascendingOrder(const std::vector<double>& f, int n) {
+    std::vector<int> idx(n);
+    std::iota(idx.begin(), idx.end(), 0);
+    std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) { return f[a] < f[b]; });
+    return idx;
 }
 
-std::discrete_distribution<int> RDE::buildRspDistribution(const std::vector<int>& order) const {
-    // Rank_i = kr*(M-i)+1, i = 1-based rank (order[0] is rank 1 = best).
-    const int M = static_cast<int>(order.size());
-    std::vector<double> w(std::max(1, M));
-    for (int pos = 0; pos < M; ++pos) {
-        const double rank_i = kr_ * double(M - (pos + 1)) + 1.0;
-        w[pos] = std::max(1e-9, rank_i);
+} // namespace
+
+double RDE::progress() const {
+    return (max_evals_ > 0) ? double(prob_->calls()) / double(max_evals_) : 1.0;
+}
+
+double RDE::meanWL(const std::vector<double>& v, const std::vector<double>& w) const {
+    // RDE.cpp:360-379. With all weights 0 the authors' code divides 0/0 and,
+    // through the NaN, falls back to 0.5; that outcome is made explicit here.
+    double sumW = 0.0;
+    for (double x : w) sumW += x;
+    if (!(sumW > 0.0)) return 0.5;
+    double sumSq = 0.0, sum = 0.0;
+    for (size_t t = 0; t < v.size(); ++t) {
+        const double wt = w[t] / sumW;
+        sumSq += wt * v[t] * v[t];
+        sum   += wt * v[t];
     }
-    if (M == 0) w[0] = 1.0;
-    return std::discrete_distribution<int>(w.begin(), w.end());
+    return (std::fabs(sum) > 1e-6) ? sumSq / sum : 0.5;
+}
+
+void RDE::findLimits(Vec& x, const Vec& parent) const {
+    // RDE.cpp:166-173: midpoint between the violated bound and the parent.
+    const auto& L = prob_->lb();
+    const auto& U = prob_->ub();
+    for (size_t j = 0; j < x.size(); ++j) {
+        if (!std::isfinite(x[j])) x[j] = parent[j];
+        if (x[j] < L[j]) x[j] = 0.5 * (L[j] + parent[j]);
+        if (x[j] > U[j]) x[j] = 0.5 * (U[j] + parent[j]);
+    }
+}
+
+void RDE::addToArchive(const Vec& x, double f) {
+    // RDE.cpp:380-392: append while there is room, otherwise overwrite a random slot.
+    if (archiveCap_ <= 0) return;
+    if (static_cast<int>(archiveX_.size()) < archiveCap_) {
+        archiveX_.push_back(x);
+        archiveF_.push_back(f);
+    } else {
+        std::uniform_int_distribution<int> ui(0, archiveCap_ - 1);
+        const int k = ui(rng_);
+        archiveX_[k] = x;
+        archiveF_[k] = f;
+    }
 }
 
 void RDE::init() {
@@ -41,23 +78,15 @@ void RDE::init() {
 
     int Nmax = (fixed_population_ > 3)
         ? fixed_population_
-        : std::max(Nmin_ + 1, static_cast<int>(std::round(Nmax_mult_ * double(D))));
+        : std::max(Nmin_ + 1, static_cast<int>(Nmax_mult_ * double(D))); // RDE.cpp:897 int(18*D)
 
-    // Budget-aware cap: if max_evals_ is fixed regardless of D (as in this
-    // codebase's [global] config, unlike the report's own max_nfes=10000*D
-    // protocol), an unmodified Nmax=18*D can consume the entire budget in a
-    // handful of generations for high-D problems. Ensure at least
-    // min_generations_ generations remain feasible, using the average of
-    // Nmax and Nmin as a rough per-generation cost estimate (population
-    // shrinks linearly over the run, cf. Eq. 21).
+    // optimsolution safeguard (not in the authors' code): with a budget that does
+    // not scale with D, keep at least min_generations_ generations feasible.
+    // With max_evals = 10000*D it never triggers (cap = 200*D - Nmin > 18*D).
     if (fixed_population_ <= 3 && min_generations_ > 0 && max_evals_ > 0) {
-        // avgPop ~= (Nmax+Nmin)/2 evals per generation; solve for the Nmax
-        // that keeps avgPop*min_generations_ <= max_evals_.
         const double budgetPerGen = double(max_evals_) / double(min_generations_);
         const int cappedNmax = static_cast<int>(std::floor(2.0 * budgetPerGen - double(Nmin_)));
-        if (cappedNmax >= Nmin_ + 1 && cappedNmax < Nmax) {
-            Nmax = cappedNmax;
-        }
+        if (cappedNmax >= Nmin_ + 1 && cappedNmax < Nmax) Nmax = cappedNmax;
     }
 
     Nmax_ = std::max(Nmin_ + 1, Nmax);
@@ -65,30 +94,27 @@ void RDE::init() {
 
     Initializer initSampler;
     initSampler.configure(initopt_);
-    X_ = initSampler.samplePopulation(*prob_, rng_, std::max(pop_, 2));
+    X_ = initSampler.samplePopulation(*prob_, rng_, pop_);
     FX_.assign(X_.size(), std::numeric_limits<double>::infinity());
 
     best_f_ = std::numeric_limits<double>::infinity();
     best_x_.assign(D, 0.0);
 
     for (size_t i = 0; i < X_.size(); ++i) {
+        if (prob_->calls() >= max_evals_) break;
         const double f = eval(X_[i]);
         FX_[i] = f;
         if (f < best_f_) { best_f_ = f; best_x_ = X_[i]; }
-        if (prob_->calls() >= max_evals_) break;
     }
 
-    mem_F_.assign(H_, muF0_);
+    mem_F_.assign(H_, muF0_);   // RDE.cpp:331-334
     mem_CR_.assign(H_, muCR0_);
-    if (H_ >= 1) {
-        mem_F_[H_ - 1]  = 0.9; // fixed terminal slot (Eq. 17)
-        mem_CR_[H_ - 1] = 0.9;
-    }
     mem_pos_ = 0;
-    gamma1_  = gamma1_0_;
+    gamma1_  = gamma1_0_;       // RDE.cpp:30 EB_hybrid_rate = 0.5
 
     archiveX_.clear();
     archiveF_.clear();
+    archiveCap_ = static_cast<int>(double(Nmax_) * Ar_); // RDE.cpp:285
 
     updateStop(FX_);
     printBest();
@@ -96,6 +122,7 @@ void RDE::init() {
 
 void RDE::one_iteration() {
     if (!prob_) return;
+    if (prob_->calls() >= max_evals_) return;
     const int D = prob_->dimension();
     const auto& L = prob_->lb();
     const auto& U = prob_->ub();
@@ -103,242 +130,181 @@ void RDE::one_iteration() {
     if (N < 4) return;
 
     std::uniform_real_distribution<double> U01(0.0, 1.0);
-    std::uniform_int_distribution<int> UH(0, H_ - 1);
+    std::uniform_int_distribution<int> UHp1(0, H_);     // {0..H}: H = the fixed 0.9 entry
     std::uniform_int_distribution<int> Ujrand(0, D - 1);
+    std::normal_distribution<double> N01(0.0, 1.0);
+    std::cauchy_distribution<double> C01(0.0, 1.0);
 
-    const double progress = (max_evals_ > 0) ? double(prob_->calls()) / double(max_evals_) : 1.0;
+    // ---- rankings and RSP selectors (RDE.cpp:551-606) ----
+    const std::vector<int> order = ascendingOrder(FX_, N);
+    std::vector<double> wPop(N);
+    for (int i = 0; i < N; ++i) wPop[i] = kr_ * double(N - i);
+    std::discrete_distribution<int> popRsp(wPop.begin(), wPop.end());
 
-    // Linear p reduction (Eq. 20): p in [pmax/2, pmax], deterministic in nfes.
-    const double p_frac = pmax_ * (1.0 - 0.5 * progress);
-    int p_window = std::max(2, static_cast<int>(std::round(p_frac * double(N))));
-    if (p_window > N) p_window = N;
+    const double psize = pmax_ * (1.0 - 0.5 * progress());
+    int psizeval = static_cast<int>(double(N) * psize);
+    if (psizeval <= 1) psizeval = 2;
+    if (psizeval > N) psizeval = N;
+    std::discrete_distribution<int> pbestRsp(wPop.begin(), wPop.begin() + psizeval);
 
-    // Fitness-ascending order of the population (rank 1 = best = order[0]).
-    std::vector<int> order(N);
-    for (int i = 0; i < N; ++i) order[i] = i;
-    std::sort(order.begin(), order.end(), [&](int a, int b) { return FX_[a] < FX_[b]; });
-    std::discrete_distribution<int> popRsp = buildRspDistribution(order);
-
-    // p-best window: RSP re-applied WITHIN the top p_window individuals only
-    // (Eq. 9-10 extended to the "p" selection, per Sec. II-B-4).
-    std::vector<int> pbestOrder(order.begin(), order.begin() + p_window);
-    std::discrete_distribution<int> pbestRsp = buildRspDistribution(pbestOrder);
-
-    // Joint population+archive pool, RSP-weighted, for r2 in the
-    // current-to-pbest branch only (Sec. II-B-1).
     const int NA = static_cast<int>(archiveX_.size());
-    std::vector<int> unionOrder(N + NA);
-    {
-        for (int i = 0; i < N; ++i) unionOrder[i] = i;
-        for (int i = 0; i < NA; ++i) unionOrder[N + i] = N + i;
-        auto fitnessOf = [&](int idx) { return idx < N ? FX_[idx] : archiveF_[idx - N]; };
-        std::sort(unionOrder.begin(), unionOrder.end(),
-                  [&](int a, int b) { return fitnessOf(a) < fitnessOf(b); });
+    std::vector<int> orderA;
+    std::discrete_distribution<int> archRsp;
+    if (NA > 0) {
+        orderA = ascendingOrder(archiveF_, NA);
+        std::vector<double> wA(NA);
+        for (int i = 0; i < NA; ++i) wA[i] = kr_ * double(NA - i);
+        archRsp = std::discrete_distribution<int>(wA.begin(), wA.end());
     }
-    std::discrete_distribution<int> unionRsp = buildRspDistribution(unionOrder);
-    auto unionX = [&](int idx) -> const Vec& { return idx < N ? X_[idx] : archiveX_[idx - N]; };
 
-    std::vector<Vec>    Xnew(N);
-    std::vector<double> Fnew(N, std::numeric_limits<double>::infinity());
-
-    // Per-strategy average-improvement bookkeeping for the gamma1 update (Eq. 6-8).
-    double sumImprove1 = 0.0, sumImprove2 = 0.0;
-    int n1 = 0, n2 = 0;
-
-    // Success-history bookkeeping for the F/Cr memory update (Eq. 14-16).
+    std::vector<Vec>    Xt(N);
+    std::vector<double> Ft(N, std::numeric_limits<double>::infinity());
+    std::vector<char>   isEB(N, 0);
     std::vector<double> succ_F, succ_CR, succ_dF;
 
-    // Parents replaced by a strictly-better trial, queued for the archive.
-    std::vector<std::pair<Vec, double>> replacedParents;
-
     for (int i = 0; i < N; ++i) {
-        const bool useOrderPbest = (U01(rng_) < gamma1_);
+        const int r = UHp1(rng_);
 
-        // ---- sample F_i, Cr_i (jSO-style memory + early-stage clamps, Eq. 11-13, 17-19) ----
-        const int r = UH(rng_);
-        double F_i  = sampleCauchyParam(mem_F_[r], 0.1, 0.0, 1.0);
-        double CR_i = sampleTruncGaussian(mem_CR_[r], 0.1, 0.0, 1.0);
+        // ---- donors (RDE.cpp:610-639) ----
+        int prand = order[pbestRsp(rng_)];
+        for (int g = 0; prand == i && progress() < 0.5 && g < 1000; ++g) prand = order[pbestRsp(rng_)];
+        int r1 = order[popRsp(rng_)];
+        for (int g = 0; r1 == prand && g < 1000; ++g) r1 = order[popRsp(rng_)];
+        int r2 = order[popRsp(rng_)];
+        for (int g = 0; (r2 == prand || r2 == r1) && g < 1000; ++g) r2 = order[popRsp(rng_)];
 
-        if (progress < 0.6 && F_i > 0.7) F_i = 0.7;                          // Eq. 18
-        if (progress < 0.25 && F_i < 0.7) CR_i = std::max(CR_i, 0.7);        // Eq. 19
-        else if (progress < 0.5 && F_i < 0.6) CR_i = std::max(CR_i, 0.6);    // Eq. 19
+        // ---- F: Cauchy, redrawn while < 0, clipped at 1, <= 0.7 before 60% (RDE.cpp:642-665) ----
+        const double locF = (r < H_) ? mem_F_[r] : 0.9;
+        double F_i = locF + 0.1 * C01(rng_);
+        for (int g = 0; F_i < 0.0 && g < 1000; ++g) F_i = locF + 0.1 * C01(rng_);
+        if (F_i < 0.0) F_i = 0.0;
+        if (F_i > 1.0) F_i = 1.0;
+        if (progress() < 0.6 && F_i > 0.7) F_i = 0.7;
 
-        // ---- donor vector v_i ----
-        Vec v(D);
-        const int donorA = pbestOrder[pbestRsp(rng_)]; // "p" (Eq. 2) / 'a' (Eq. 5)
-
-        if (!useOrderPbest) {
-            // Standard branch: current-to-pbest/1, r2 from population+archive (Eq. 2).
-            int r1 = order[popRsp(rng_)];
-            for (int g = 0; (r1 == i || r1 == donorA) && g < 50; ++g) r1 = order[popRsp(rng_)];
-
-            int r2u = unionOrder[unionRsp(rng_)];
-            for (int g = 0; (r2u == i || r2u == donorA || r2u == r1) && g < 50; ++g) {
-                r2u = unionOrder[unionRsp(rng_)];
-            }
-            const Vec& xr2 = unionX(r2u);
-
-            for (int j = 0; j < D; ++j) {
-                v[j] = X_[i][j]
-                     + F_i * (X_[donorA][j] - X_[i][j])
-                     + F_i * (X_[r1][j] - xr2[j]);
-            }
-        } else {
-            // Order-pbest branch: ordered best/median/worst donor set (Eq. 5).
-            int b = order[popRsp(rng_)];
-            for (int g = 0; (b == i || b == donorA) && g < 50; ++g) b = order[popRsp(rng_)];
-            int c = order[popRsp(rng_)];
-            for (int g = 0; (c == i || c == donorA || c == b) && g < 50; ++g) c = order[popRsp(rng_)];
-
-            int trio[3] = { donorA, b, c };
-            std::sort(trio, trio + 3, [&](int x, int y) { return FX_[x] < FX_[y]; });
-            const int bestI = trio[0], midI = trio[1], worstI = trio[2];
-            for (int j = 0; j < D; ++j) {
-                v[j] = X_[i][j]
-                     + F_i * (X_[bestI][j] - X_[i][j])
-                     + F_i * (X_[midI][j] - X_[worstI][j]);
-            }
+        // ---- mutation (RDE.cpp:669-720) ----
+        const bool useEB = (U01(rng_) < gamma1_);
+        isEB[i] = useEB ? 1 : 0;
+        const bool fromArchive = (NA > 0) && (U01(rng_) < double(NA) / double(NA + N));
+        const Vec*   x3 = fromArchive ? nullptr : &X_[r2];
+        double       f3 = fromArchive ? 0.0 : FX_[r2];
+        if (fromArchive) {
+            const int a = orderA[archRsp(rng_)];
+            x3 = &archiveX_[a];
+            f3 = archiveF_[a];
         }
 
-        // ---- crossover + bound repair by resampling ----
-        Vec u = X_[i];
-        std::vector<bool> fromDonor(D, false);
+        Vec v(D);
+        if (useEB) {
+            const Trio t = orderTrio(&X_[prand], FX_[prand], &X_[r1], FX_[r1], x3, f3);
+            for (int j = 0; j < D; ++j)
+                v[j] = X_[i][j] + F_i * ((*t.best)[j] - X_[i][j]) + F_i * ((*t.mid)[j] - (*t.worst)[j]);
+        } else {
+            for (int j = 0; j < D; ++j)
+                v[j] = X_[i][j] + F_i * (X_[prand][j] - X_[i][j]) + F_i * (X_[r1][j] - (*x3)[j]);
+        }
+        findLimits(v, X_[i]); // RDE.cpp:738
+
+        // ---- Cr (RDE.cpp:743-773) ----
+        double CR_i;
+        if (r < H_) CR_i = (mem_CR_[r] < 0.0) ? 0.0 : mem_CR_[r] + 0.1 * N01(rng_);
+        else        CR_i = 0.9 + 0.1 * N01(rng_);
+        if (CR_i >= 1.0) CR_i = 1.0;
+        if (CR_i <= 0.0) CR_i = 0.0;
+        if (progress() < 0.25) CR_i = std::max(CR_i, 0.7);
+        if (progress() < 0.5)  CR_i = std::max(CR_i, 0.6);
+
+        // ---- crossover + Cauchy perturbation of the non-crossover dimensions (RDE.cpp:776-785) ----
         const int jrand = Ujrand(rng_);
+        const bool perturbation = (U01(rng_) < pr_);
+        Vec u(D);
         for (int j = 0; j < D; ++j) {
             if (U01(rng_) < CR_i || j == jrand) {
-                double val = v[j];
-                if (!std::isfinite(val) || val < L[j] || val > U[j]) {
-                    std::uniform_real_distribution<double> ud(L[j], U[j]);
-                    val = ud(rng_);
-                }
-                u[j] = val;
-                fromDonor[j] = true;
+                u[j] = v[j];
+            } else if (perturbation) {
+                u[j] = X_[i][j] + sigma_loc_ * (U[j] - L[j]) * C01(rng_);
+            } else {
+                u[j] = X_[i][j];
             }
         }
+        findLimits(u, X_[i]); // RDE.cpp:794 (v1.1.0)
 
-        // ---- Cauchy local perturbation on ONE non-crossover dimension (Eq. 22, adapted) ----
-        // See the class-level comment in rde.h for why this targets a single
-        // dimension rather than gating every non-crossover dimension
-        // independently (the latter's disruptiveness would grow with D).
-        if (U01(rng_) < pr_) {
-            std::vector<int> nonCrossoverDims;
-            nonCrossoverDims.reserve(D);
-            for (int j = 0; j < D; ++j) {
-                if (!fromDonor[j]) nonCrossoverDims.push_back(j);
-            }
-            if (!nonCrossoverDims.empty()) {
-                std::uniform_int_distribution<int> Ud(0, static_cast<int>(nonCrossoverDims.size()) - 1);
-                const int j = nonCrossoverDims[Ud(rng_)];
-                std::cauchy_distribution<double> cd(u[j], sigma_loc_ * (U[j] - L[j]));
-                double val = cd(rng_);
-                if (!std::isfinite(val) || val < L[j] || val > U[j]) {
-                    std::uniform_real_distribution<double> ud(L[j], U[j]);
-                    val = ud(rng_);
-                }
-                u[j] = val;
-            }
-        }
-
-        const double fPrev = FX_[i];
         const double fu = eval(u);
+        if (fu < best_f_) { best_f_ = fu; best_x_ = u; }
+        if (fu <= FX_[i]) {
+            succ_F.push_back(F_i);
+            succ_CR.push_back(CR_i);
+            succ_dF.push_back(std::fabs(FX_[i] - fu));
+        }
+        Xt[i] = std::move(u);
+        Ft[i] = fu;
 
-        if (fu <= fPrev) {
-            const double improve = fPrev - fu;
-            if (fu < fPrev) {
-                replacedParents.push_back({ X_[i], fPrev }); // archive the replaced parent
-                succ_F.push_back(F_i);
-                succ_CR.push_back(CR_i);
-                succ_dF.push_back(improve);
+        if (prob_->calls() >= max_evals_) break; // remaining trials stay at +inf (not accepted)
+    }
+
+    // ---- EB share update: sums of improvements (RDE.cpp:503-538) ----
+    {
+        double sumEB = 0.0, sumStd = 0.0;
+        for (int i = 0; i < N; ++i) {
+            if (Ft[i] <= FX_[i]) {
+                if (isEB[i]) sumEB += FX_[i] - Ft[i];
+                else         sumStd += FX_[i] - Ft[i];
             }
-            if (useOrderPbest) { sumImprove1 += improve; ++n1; } else { sumImprove2 += improve; ++n2; }
-            Xnew[i] = std::move(u);
-            Fnew[i] = fu;
+        }
+        if (sumEB != 0.0 && sumStd != 0.0) {
+            gamma1_ = sumEB / (sumEB + sumStd);
+            gamma1_ = std::min(std::max(gamma1_, 0.0), 1.0);
         } else {
-            if (useOrderPbest) ++n1; else ++n2;
-            Xnew[i] = X_[i];
-            Fnew[i] = fPrev;
+            gamma1_ = gamma1_0_;
         }
+    }
 
+    // ---- synchronous replacement + archive (RDE.cpp:806-813) ----
+    for (int i = 0; i < N; ++i) {
+        if (Ft[i] <= FX_[i]) {
+            addToArchive(X_[i], FX_[i]);
+            X_[i]  = std::move(Xt[i]);
+            FX_[i] = Ft[i];
+        }
         if (local_rate_ > 0.0 && local_method_ != "none" && !local_method_.empty()
-            && U01(rng_) < local_rate_) {
-            auto [xl, fl] = localSearch(local_method_, Xnew[i]);
-            if (fl < Fnew[i]) { Xnew[i] = std::move(xl); Fnew[i] = fl; }
-        }
-
-        if (Fnew[i] < best_f_) { best_f_ = Fnew[i]; best_x_ = Xnew[i]; }
-
-        if (prob_->calls() >= max_evals_) {
-            for (int k = i + 1; k < N; ++k) { Xnew[k] = X_[k]; Fnew[k] = FX_[k]; }
-            break;
+            && U01(rng_) < local_rate_ && prob_->calls() < max_evals_) {
+            auto [xl, fl] = localSearch(local_method_, X_[i]);
+            if (fl < FX_[i]) { X_[i] = std::move(xl); FX_[i] = fl; }
+            if (FX_[i] < best_f_) { best_f_ = FX_[i]; best_x_ = X_[i]; }
         }
     }
 
-    X_  = std::move(Xnew);
-    FX_ = std::move(Fnew);
+    // ---- linear population and archive size reduction (RDE.cpp:815-827) ----
+    const double nfe    = double(prob_->calls());
+    const double maxfe  = double(std::max<long long>(1, (long long)max_evals_));
+    int newN = static_cast<int>(double(Nmin_ - Nmax_) / maxfe * nfe + double(Nmax_));
+    if (newN < Nmin_) newN = Nmin_;
+    if (newN > N)     newN = N;
 
-    // ---- external archive update (Sec. II-B-1) ----
-    for (auto& pr : replacedParents) {
-        archiveX_.push_back(std::move(pr.first));
-        archiveF_.push_back(pr.second);
-    }
-    const int archiveCap = std::max(0, static_cast<int>(std::round(Ar_ * double(X_.size()))));
-    while (static_cast<int>(archiveX_.size()) > archiveCap) {
-        std::uniform_int_distribution<int> Uevict(0, static_cast<int>(archiveX_.size()) - 1);
-        const int idx = Uevict(rng_);
-        std::swap(archiveX_[idx], archiveX_.back()); archiveX_.pop_back();
-        std::swap(archiveF_[idx], archiveF_.back()); archiveF_.pop_back();
-    }
-
-    // ---- gamma1/gamma2 resource-allocation update (Eq. 6-8) ----
-    const double omega1 = (n1 > 0) ? (sumImprove1 / double(n1)) : 0.0;
-    const double omega2 = (n2 > 0) ? (sumImprove2 / double(n2)) : 0.0;
-    if (omega1 <= 0.0 && omega2 <= 0.0) {
-        gamma1_ = 0.5;
-    } else {
-        gamma1_ = omega1 / (omega1 + omega2);
-        gamma1_ = std::min(std::max(gamma1_, 0.05), 0.95); // keep both branches alive
+    int newArch = static_cast<int>((maxfe - nfe) / maxfe * (Ar_ * double(Nmax_ - Nmin_)));
+    if (newArch < Nmin_) newArch = Nmin_;
+    archiveCap_ = newArch;
+    if (static_cast<int>(archiveX_.size()) > archiveCap_) {
+        archiveX_.resize(archiveCap_);
+        archiveF_.resize(archiveCap_);
     }
 
-    // ---- success-history memory update, weighted Lehmer mean (Eq. 14-16) ----
-    // The terminal slot (h = H-1) is fixed at 0.9 and never overwritten (Eq. 17),
-    // so the rotation pointer only cycles over the H-1 updatable slots.
-    if (!succ_dF.empty() && H_ > 1) {
-        double sumW = 0.0;
-        for (double df : succ_dF) sumW += df;
-        if (sumW > 0.0) {
-            double numF = 0.0, denF = 0.0, numCR = 0.0, denCR = 0.0;
-            for (size_t t = 0; t < succ_dF.size(); ++t) {
-                const double w = succ_dF[t] / sumW;
-                numF  += w * succ_F[t]  * succ_F[t];
-                denF  += w * succ_F[t];
-                numCR += w * succ_CR[t] * succ_CR[t];
-                denCR += w * succ_CR[t];
-            }
-            if (denF > 1e-12)  mem_F_[mem_pos_]  = numF / denF;
-            if (denCR > 1e-12) mem_CR_[mem_pos_] = numCR / denCR;
-        }
-        mem_pos_ = (mem_pos_ + 1) % (H_ - 1);
+    // RemoveWorst (RDE.cpp:403-420): drop the worst one at a time, keeping the order of the rest.
+    while (static_cast<int>(X_.size()) > newN) {
+        size_t worst = 0;
+        for (size_t k = 1; k < FX_.size(); ++k) if (FX_[k] > FX_[worst]) worst = k;
+        X_.erase(X_.begin() + worst);
+        FX_.erase(FX_.begin() + worst);
     }
+    pop_ = static_cast<int>(X_.size());
 
-    // ---- linear population size reduction, Nmax -> Nmin (Eq. 21) ----
-    const long long nfe = prob_->calls();
-    const long long budget = std::max<long long>(1, max_evals_);
-    int Nnext = static_cast<int>(std::llround(
-        (double(Nmin_) - double(Nmax_)) * (double(nfe) / double(budget)) + double(Nmax_)));
-    if (Nnext < Nmin_) Nnext = Nmin_;
-    if (Nnext > static_cast<int>(X_.size())) Nnext = static_cast<int>(X_.size());
-
-    if (Nnext < static_cast<int>(X_.size())) {
-        std::vector<int> idx(X_.size());
-        for (size_t i = 0; i < idx.size(); ++i) idx[i] = static_cast<int>(i);
-        std::sort(idx.begin(), idx.end(), [&](int a, int b) { return FX_[a] < FX_[b]; });
-
-        std::vector<Vec>    Xk(Nnext);
-        std::vector<double> Fk(Nnext);
-        for (int i = 0; i < Nnext; ++i) { Xk[i] = X_[idx[i]]; Fk[i] = FX_[idx[i]]; }
-        X_  = std::move(Xk);
-        FX_ = std::move(Fk);
-        pop_ = Nnext;
+    // ---- success-history memory update (RDE.cpp:342-359) ----
+    if (!succ_dF.empty()) {
+        const double oldCR = mem_CR_[mem_pos_];
+        const double maxCR = *std::max_element(succ_CR.begin(), succ_CR.end());
+        if (oldCR == -1.0 || maxCR == 0.0) mem_CR_[mem_pos_] = -1.0;   // terminal value
+        else                               mem_CR_[mem_pos_] = 0.5 * (meanWL(succ_CR, succ_dF) + oldCR);
+        mem_F_[mem_pos_] = meanWL(succ_F, succ_dF);
+        mem_pos_ = (mem_pos_ + 1) % H_;
     }
 
     updateStop(FX_);

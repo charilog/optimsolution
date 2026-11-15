@@ -26,8 +26,14 @@ public:
 
     // Settings from [aco] in the configuration file
     void configure(const MethodConfig& mc) override {
-        int pop_override = mc.getInt("population", pop_);
-        if (pop_override > 0) pop_ = pop_override;
+        // population=0 (or unset): literature default. Socha & Dorigo's
+        // continuous-domain ACO (ACOR, 2008) is commonly implemented with
+        // nants=40 (e.g. the NEORL reference implementation's own
+        // default). Previously population=0 silently fell back to
+        // [global] population (default 100) instead of this documented
+        // convention -- fixed here.
+        int pop_override = mc.getInt("population", 0);
+        pop_ = (pop_override > 0) ? pop_override : 40;
 
         levels_      = mc.getInt   ("levels",      levels_);
         alpha_       = mc.getDbl   ("alpha",       alpha_);

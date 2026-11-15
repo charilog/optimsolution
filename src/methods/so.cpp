@@ -1,4 +1,6 @@
 #include "so.h"
+#include <utility>
+#include <vector>
 #include "init.h"
 #include <cstdio>
 #include <cmath>
@@ -186,7 +188,13 @@ void SO::init(){
     if (!prob_) return;
 
     const int D = prob_->dimension();
-    const int N = std::max(3, (pop_override_ >= 3 ? pop_override_ : population()));
+    // population=0 (or unset): Tamura & Yasuda's Spiral Optimization
+    // papers and the follow-up literature use varying population sizes
+    // (commonly seen: 20, 50, 200) with no single canonical default. We
+    // use N=30, the general convention shared by most other algorithms in
+    // this codebase. Previously population=0 silently fell back to
+    // [global] population (default 100) instead of this convention -- fixed here.
+    const int N = std::max(3, (pop_override_ >= 3 ? pop_override_ : 30));
     this->setPopulation(N);
 
     X_.clear(); FX_.clear();
@@ -259,20 +267,26 @@ void SO::one_iteration(){
         Vec y(D, 0.0);
         for (int j=0; j<D; ++j) y[j] = X_[i][j] - best_x_[j];
 
-        // apply pairwise 2D rotations + contraction
-        int j = 0;
-        for (; j+1 < D; j += 2) {
-            const double a = y[j];
-            const double b = y[j+1];
-            const double na = shrink_ * (c*a - s*b);
-            const double nb = shrink_ * (s*a + c*b);
-            u[j]   = best_x_[j]   + na;
-            u[j+1] = best_x_[j+1] + nb;
+        // FIX (fidelity): Tamura & Yasuda (2011) use the composite n-D rotation
+        //   R^(n)(theta) = prod_{i=1}^{n-1} prod_{j=1}^{i} R_{n-i, n+1-j}(theta)
+        // (a planar rotation for EVERY coordinate pair, applied as a matrix
+        // product: the rightmost factor acts first). The previous code rotated
+        // only the disjoint pairs (0,1), (2,3), ..., so coordinates in
+        // different pairs never mixed. Update: x' = x* + r R^(n)(theta)(x - x*).
+        if (D >= 2) {
+            std::vector<std::pair<int,int>> planes;   // 0-based (p, q)
+            planes.reserve((size_t)D * (D - 1) / 2);
+            for (int i1 = 1; i1 <= D - 1; ++i1)
+                for (int j1 = 1; j1 <= i1; ++j1)
+                    planes.emplace_back((D - i1) - 1, (D + 1 - j1) - 1);
+            for (int k = (int)planes.size() - 1; k >= 0; --k) {
+                const int pp = planes[(size_t)k].first, qq = planes[(size_t)k].second;
+                const double a = y[pp], b = y[qq];
+                y[pp] = c*a - s*b;       // R_{p,q}(theta) in the (p, q) plane
+                y[qq] = s*a + c*b;
+            }
         }
-        if (j < D) {
-            // leftover dimension (or D==1)
-            u[j] = best_x_[j] + shrink_ * y[j];
-        }
+        for (int jj = 0; jj < D; ++jj) u[jj] = best_x_[jj] + shrink_ * y[jj];
 
         ensureBounds(u);
         double fu = eval(u);

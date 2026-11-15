@@ -47,6 +47,8 @@ private:
     // Optional donor correction over the 11%-50% band of the ranked population.
     bool   bj_enable_{false};
     double bj_band_beta_{0.02};
+    double bj_band_from_{0.02};   // rank band [from, to) of the bj mean term
+    double bj_band_to_{0.10};
 
     std::vector<Vec>    X_;
     std::vector<double> FX_;

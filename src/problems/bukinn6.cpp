@@ -39,18 +39,11 @@ double BukinN6::evaluate_core(const Vec& x)
 
 void BukinN6::gradient_core(const Vec& x, Vec& g)
 {
-    // Non-smooth (sqrt of |.|, plus |.|); forward differences.
-    g.assign(2, 0.0);
-    const double f0 = evaluate_core(x);
-    Vec xt = x;
-
-    for (int i = 0; i < 2; ++i) {
-        const double h = std::max(1e-6, std::fabs(x[i]) * 1e-6);
-        xt[i] = x[i] + h;
-        const double f1 = evaluate_core(xt);
-        g[i] = (f1 - f0) / h;
-        xt[i] = x[i];
-    }
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

@@ -59,7 +59,12 @@ void KH::init(){
     if (!prob_) return;
 
     const int D = prob_->dimension();
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): literature convention. Gandomi & Alavi's
+    // original Krill Herd paper (2012) and the great majority of
+    // follow-up studies use a krill population of N=25. Previously
+    // population=0 silently fell back to [global] population (default
+    // 100) instead of this documented default -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 25));
     this->setPopulation(N);
 
     X_.clear(); FX_.clear(); Nprev_.clear(); Fprev_.clear();
@@ -80,6 +85,7 @@ void KH::init(){
 
     Nprev_.assign(N, Vec(D, 0.0));
     Fprev_.assign(N, Vec(D, 0.0));
+    P_ = X_; FP_ = FX_;
     iter_ = 0;
 
     if (debug_kh_) {
@@ -97,6 +103,8 @@ void KH::init(){
 
 void KH::one_iteration(){
     if (!prob_) return;
+
+    if (paper_model_) { paperIteration(); return; }
 
     const int D = prob_->dimension();
     const int N = (int)X_.size();
@@ -236,6 +244,171 @@ void KH::one_iteration(){
         if (worst_idx < X_.size()) {
             X_[worst_idx]  = best_x_;
             FX_[worst_idx] = best_f_;
+        }
+    }
+
+    ++iter_;
+    printBest();
+    updateStop(FX_);
+}
+
+// ---------------------------------------------------------------------------
+// model = paper (default): the Krill Herd motion of Gandomi & Alavi (2012),
+// "Krill herd: A new bio-inspired optimization algorithm", Commun. Nonlinear
+// Sci. Numer. Simul. 17, 4831-4845, eqs. (2)-(19):
+//   induced motion  N_i = Nmax*(a_local + a_target) + wn*N_i_old
+//     a_local  = sum_{j: ||Xj-Xi|| < ds_i} K_ij X_ij,  K_ij = (K_i-K_j)/(K_w-K_b),
+//                X_ij = (X_j-X_i)/(||X_j-X_i||+eps),  ds_i = sum_j ||X_i-X_j|| / (5N)
+//     a_target = C_best K_ib X_ib,  C_best = 2 (rand + I/Imax)
+//   foraging        F_i = Vf*(b_food + b_best) + wf*F_i_old
+//     b_food = C_food K_if X_if,  C_food = 2 (1 - I/Imax),  b_best = K_i,ibest X_i,ibest
+//   diffusion       D_i = Dmax (1 - I/Imax) delta,  delta ~ U[-1,1]^n
+//   X_i(t+dt) = X_i + dt (N_i + F_i + D_i)
+// FIX: the previous update (now model = legacy) used CONSTANT unit-vector
+// pulls (no fitness coefficients K, no C_best / C_food schedules, random
+// neighbours instead of the sensing distance), so every krill kept moving
+// with a step of fixed length and the method could not refine (sphere-10D
+// stalled at f ~ 25). Framework adaptations: Nmax, Vf, Dmax <= 1 are
+// fractions of the mean box width; the food position is the fitness-weighted
+// centre (the paper's sum X_i/K_i assumes K_i > 0); I/Imax = evaluation
+// progress; c_best / c_food scale the schedules (2 = paper).
+// ---------------------------------------------------------------------------
+void KH::paperIteration(){
+    const int D = prob_->dimension();
+    const int N = (int)X_.size();
+    if (N <= 0 || prob_->calls() >= max_evals_) { printBest(); updateStop(FX_); return; }
+    if ((int)P_.size() != N) { P_ = X_; FP_ = FX_; }
+
+    const double prog = clamp01(progressFraction());
+    const double mr = meanRange();
+    const double nmax_abs  = (nmax_  <= 1.0 ? nmax_  * mr : nmax_);
+    const double vf_abs    = (vf_    <= 1.0 ? vf_    * mr : vf_);
+    const double dmax_abs  = (dmax0_ <= 1.0 ? dmax0_ * mr : dmax0_) * (1.0 - prog);
+    const double eps = 1e-300;
+
+    std::uniform_real_distribution<double> U01(0.0, 1.0);
+    std::uniform_real_distribution<double> U11(-1.0, 1.0);
+
+    // K_best = best so far, K_worst = worst current krill
+    double Kw = -std::numeric_limits<double>::infinity();
+    for (int i=0; i<N; ++i) if (std::isfinite(FX_[i]) && FX_[i] > Kw) Kw = FX_[i];
+    const double Kb = best_f_;
+    const double den = Kw - Kb;
+    const double invden = (std::isfinite(den) && den > 0.0) ? 1.0 / den : 0.0;
+    auto Kc = [&](double a, double b)->double{
+        if (!std::isfinite(a) || !std::isfinite(b)) return 0.0;
+        double v = (a - b) * invden;
+        return std::isfinite(v) ? v : 0.0;
+    };
+
+    // food centre (fitness-weighted) and its fitness
+    Vec food(D, 0.0);
+    {
+        double ws = 0.0;
+        for (int i=0; i<N; ++i){
+            double m = (invden > 0.0 && std::isfinite(FX_[i])) ? (Kw - FX_[i]) * invden : 0.0;
+            if (!(m > 0.0)) continue;
+            ws += m;
+            for (int j=0; j<D; ++j) food[j] += m * X_[i][j];
+        }
+        if (ws > 0.0) { for (int j=0; j<D; ++j) food[j] /= ws; }
+        else food = best_x_;
+        ensureBounds(food);
+    }
+    double Kfood = std::numeric_limits<double>::quiet_NaN();
+    if (prob_->calls() < max_evals_) {
+        Kfood = eval(food);
+        if (Kfood < best_f_) { best_f_ = Kfood; best_x_ = food; }
+    }
+
+    // pairwise distances for the sensing distance
+    std::vector<double> dist((size_t)N * (size_t)N, 0.0);
+    for (int i=0; i<N; ++i)
+        for (int k=i+1; k<N; ++k){
+            double s2 = 0.0;
+            for (int j=0; j<D; ++j){ const double d = X_[k][j] - X_[i][j]; s2 += d*d; }
+            dist[(size_t)i*N + k] = dist[(size_t)k*N + i] = std::sqrt(s2);
+        }
+
+    const std::vector<Vec> Xc = X_;            // positions at the start of the iteration
+    const std::vector<double> Fc = FX_;
+
+    for (int i=0; i<N; ++i){
+        if (prob_->calls() >= max_evals_) break;
+        const Vec& xi = Xc[(size_t)i];
+        const double Ki = Fc[(size_t)i];
+
+        // --- induced motion ---
+        double ds = 0.0;
+        for (int k=0; k<N; ++k) ds += dist[(size_t)i*N + k];
+        ds /= (5.0 * N);
+        Vec alpha(D, 0.0);
+        for (int k=0; k<N; ++k){
+            if (k == i) continue;
+            const double dik = dist[(size_t)i*N + k];
+            if (!(dik < ds)) continue;
+            const double kij = Kc(Ki, Fc[(size_t)k]);
+            if (kij == 0.0) continue;
+            for (int j=0; j<D; ++j) alpha[j] += kij * (Xc[(size_t)k][j] - xi[j]) / (dik + eps);
+        }
+        {
+            const double Cb = c_best_ * (U01(rng_) + prog);
+            const double kib = Kc(Ki, Kb);
+            Vec u = unitDir(best_x_, xi);
+            for (int j=0; j<D; ++j) alpha[j] += Cb * kib * u[j];
+        }
+        Vec Ni(D);
+        for (int j=0; j<D; ++j) Ni[j] = nmax_abs * alpha[j] + wn_ * Nprev_[i][j];
+
+        // --- foraging motion ---
+        Vec beta(D, 0.0);
+        if (std::isfinite(Kfood)) {
+            const double Cf = c_food_ * (1.0 - prog);
+            const double kif = Kc(Ki, Kfood);
+            Vec u = unitDir(food, xi);
+            for (int j=0; j<D; ++j) beta[j] += Cf * kif * u[j];
+        }
+        {
+            const double kibest = Kc(Ki, FP_[(size_t)i]);
+            if (kibest != 0.0) {
+                Vec u = unitDir(P_[(size_t)i], xi);
+                for (int j=0; j<D; ++j) beta[j] += kibest * u[j];
+            }
+        }
+        Vec Fi(D);
+        for (int j=0; j<D; ++j) Fi[j] = vf_abs * beta[j] + wf_ * Fprev_[i][j];
+
+        // --- physical diffusion + position update ---
+        Vec xnew = xi;
+        for (int j=0; j<D; ++j){
+            const double Dij = (dmax_abs > 0.0 ? dmax_abs * U11(rng_) : 0.0);
+            xnew[j] += dt_ * (Ni[j] + Fi[j] + Dij);
+        }
+        ensureBounds(xnew);
+        double fnew = eval(xnew);
+        Nprev_[i] = std::move(Ni);
+        Fprev_[i] = std::move(Fi);
+
+        if (local_rate_ > 0.0 && !local_method_.empty() && U01(rng_) < local_rate_
+            && prob_->calls() < max_evals_) {
+            auto [xloc, floc] = localSearch(local_method_, xnew);
+            if (std::isfinite(floc) && floc < fnew) { xnew = std::move(xloc); fnew = floc; }
+        }
+
+        const bool accept = greedy_ ? (fnew < FX_[(size_t)i]) : true;
+        if (accept) { X_[(size_t)i] = xnew; FX_[(size_t)i] = fnew; }
+        if (fnew < FP_[(size_t)i]) { P_[(size_t)i] = xnew; FP_[(size_t)i] = fnew; }
+        if (fnew < best_f_) { best_f_ = fnew; best_x_ = xnew; }
+    }
+
+    // elitism: the best-so-far replaces the worst krill
+    if (!X_.empty()) {
+        size_t wi = 0;
+        for (size_t k=1; k<FX_.size(); ++k) if (FX_[k] > FX_[wi]) wi = k;
+        if (best_f_ < FX_[wi]) {
+            X_[wi] = best_x_; FX_[wi] = best_f_;
+            Nprev_[wi].assign((size_t)D, 0.0); Fprev_[wi].assign((size_t)D, 0.0);
+            if (best_f_ < FP_[wi]) { P_[wi] = best_x_; FP_[wi] = best_f_; }
         }
     }
 

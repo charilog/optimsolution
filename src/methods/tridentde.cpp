@@ -4,8 +4,15 @@ namespace optimsolution {
 
 void TRIDENTDE::configure(const MethodConfig& mc)
 {
-    int pop_override = mc.getInt("population", pop_);
-    if (pop_override > 3) pop_ = pop_override;
+    // population=0 (or unset): internal method, no external published
+    // literature default; N=100 is this codebase's general convention.
+    // Previously population=0 silently fell back to [global] population
+    // (default 100, so numerically the same, but now explicit/robust
+    // rather than accidental) -- fixed here.
+    int pop_override = mc.getInt("population", 0);
+    pop_ = (pop_override > 3) ? pop_override : 100;
+    this->setPopulation(pop_);
+
 
     trials_per_agent   = mc.getInt("trials_per_agent",   trials_per_agent);
     agent_fraction     = mc.getDbl("agent_fraction",     agent_fraction);
@@ -207,7 +214,11 @@ void TRIDENTDE::init()
     if (!prob_) return;
 
     D_ = prob_->dimension();
+    // population=0 (or unset): internal method, no external published
+    // literature default; N=100 is this codebase's general convention.
+    // Previously population=0 silently fell back to [global] population -- fixed here.
     N_ = std::max(4, population());
+
 
     DIpop_ = std::uniform_int_distribution<int>(0, std::max(0, N_-1));
     DIdim_ = std::uniform_int_distribution<int>(0, std::max(0, D_-1));
@@ -217,7 +228,8 @@ void TRIDENTDE::init()
     X_ = initSampler.samplePopulation(*prob_, rng_, N_);
 
     FX_.assign(N_, std::numeric_limits<double>::infinity());
-    for (int i=0;i<N_;++i) FX_[i] = eval_safe(X_[i]);
+    // BUGFIX: respect the evaluation budget during initialisation
+    for (int i=0;i<N_ && prob_->calls() < max_evals_;++i) FX_[i] = eval_safe(X_[i]);
 
     int elite = eliteIndex_();
     best_x_ = X_[elite];          // Comment translated from Greek.

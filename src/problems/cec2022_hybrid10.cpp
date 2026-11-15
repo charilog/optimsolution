@@ -311,7 +311,15 @@ inline double hybrid10_value(const Vec& x, const Vec& shift, const std::vector<d
     f += ackley_basic(y.data() + g0 + g1, g2);
     f += rastrigin_basic(y.data() + g0 + g1 + g2, g3);
     f += schwefel_basic(y.data() + g0 + g1 + g2 + g3, g4);
-    f += schaffer_f7_basic(y.data() + g0 + g1 + g2 + g3 + g4, g5);
+    // FIX (official-code fidelity): in the official cec22_test_func.cpp,
+    // hf10() calls schaffer_F7_func(&y[G[5]], ..., 0, 0), but that function
+    // evaluates its formula on the GLOBAL buffer y starting at index 0 (it
+    // ignores its x argument, see schaffer_F7_func). The other five basic
+    // functions are called with s_flag = r_flag = 0, which only write the
+    // global z, so at that point y still holds the whole shuffled vector:
+    // the official sixth component is Schaffer F7 on y[0 .. g5-1], i.e. the
+    // FIRST g5 shuffled coordinates, not the last g5. Reproduced here.
+    f += schaffer_f7_basic(y.data(), g5);
     return f + 2000.0;
 }
 

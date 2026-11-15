@@ -54,6 +54,7 @@ public:
         // Core FA parameters
         beta0_ = parse_double(mc.getStr("beta0", mc.getStr("beta_0", std::to_string(beta0_))), beta0_);
         gamma_ = parse_double(mc.getStr("gamma", std::to_string(gamma_)), gamma_);
+        scale_gamma_ = mc.getBool("scale_gamma", scale_gamma_);
         alpha0_ = parse_double(mc.getStr("alpha", std::to_string(alpha0_)), alpha0_);
         alpha_damp_ = parse_double(mc.getStr("alpha_damp", mc.getStr("alpha_decay", std::to_string(alpha_damp_))), alpha_damp_);
 
@@ -149,6 +150,7 @@ private:
 
     double beta0_{1.0};
     double gamma_{1.0};
+    bool   scale_gamma_{true};   // distances in box-normalised coordinates
     double alpha0_{0.2};
     double alpha_{0.2};
     double alpha_damp_{0.98};

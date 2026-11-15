@@ -49,9 +49,15 @@ void jDE::init()
     if (!prob_) return;
     const int D = prob_->dimension();
 
-    // If a per-method population is defined, it is enforced.
+    // population=0 (or unset): literature default. Brest et al.'s jDE
+    // study (2006) follows the classic DE convention of NP=10*D.
+    // Previously population=0 silently fell back to [global] population
+    // (default 100, dimension-independent) instead of this documented
+    // default -- fixed here.
     if (pop_cfg_ > 0) {
         Optimizer::setPopulation(pop_cfg_);
+    } else {
+        Optimizer::setPopulation(std::max(4, 10 * D));
     }
 
     pop_init_ = std::max(4, Optimizer::population());

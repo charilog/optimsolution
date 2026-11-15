@@ -1,9 +1,43 @@
 #include "clpso.h"
+#include <cctype>
 #include "init.h"
 #include <cmath>
 #include <limits>
 
 namespace optimsolution {
+
+void CLPSO::configure(const MethodConfig& mc)
+{
+    // population = 0 (or unset): CLPSO paper default, resolved in init()
+    pop_cfg_ = mc.getInt("population", 0);
+    if (pop_cfg_ > 3) setPopulation(pop_cfg_);
+
+    w_max_       = mc.getDbl("w_max", w_max_);
+    w_min_       = mc.getDbl("w_min", w_min_);
+    c_           = mc.getDbl("c", c_);
+    refresh_gap_ = mc.getInt("refresh_gap", refresh_gap_);
+    pc_min_      = mc.getDbl("pc_min", pc_min_);
+    pc_max_      = mc.getDbl("pc_max", pc_max_);
+    pc_exp_      = mc.getDbl("pc_exp", pc_exp_);
+    vmax_frac_   = mc.getDbl("vmax_frac", vmax_frac_);
+    clamp_pos_   = mc.getBool("clamp_pos", clamp_pos_);
+    gbest_coef_  = mc.getDbl("gbest_coef", gbest_coef_);
+    if (gbest_coef_ < 0.0) gbest_coef_ = 0.0;
+    if (refresh_gap_ < 0) refresh_gap_ = 0;
+    if (pc_min_ < 0.0) pc_min_ = 0.0;
+    if (pc_max_ > 1.0) pc_max_ = 1.0;
+    if (pc_max_ < pc_min_) pc_max_ = pc_min_;
+    if (vmax_frac_ <= 0.0) vmax_frac_ = 0.2;
+
+    std::string lm = mc.getStr("local_method", local_method_);
+    for (auto& ch : lm) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    local_method_ = lm;
+    double lr = mc.getDbl("local_rate", local_rate_);
+    local_rate_ = (lr < 0.0) ? 0.0 : (lr > 1.0 ? 1.0 : lr);
+
+    if (mc.kv.count("end_local_refine")) end_local_refine_ = mc.getBool("end_local_refine", end_local_refine_);
+    if (mc.kv.count("end_local_method")) end_local_method_ = mc.getStr("end_local_method", end_local_method_);
+}
 
 double CLPSO::evalAndUpdateBest(const VecD& x)
 {
@@ -148,6 +182,11 @@ void CLPSO::init()
     if (!prob_) return;
     const int D = prob_->dimension();
 
+    // population = 0: Liang et al. (2006) use 10 particles for 10-D and 40 for
+    // 30-D problems (it used to fall back to the [global] population, 100,
+    // which leaves CLPSO only ~200 generations at 10,000*D evaluations).
+    if (pop_cfg_ <= 3) setPopulation(D <= 10 ? 10 : 40);
+
     X_.clear();
     V_.clear();
     FX_.clear();
@@ -183,7 +222,9 @@ void CLPSO::init()
 
     // Evaluate initial population, set pbest, update global best
     for (int i = 0; i < pop_; ++i) {
-        FX_[i] = evalAndUpdateBest(X_[i]);
+        // BUGFIX: respect the evaluation budget during initialisation
+        FX_[i] = (prob_->calls() < max_evals_) ? evalAndUpdateBest(X_[i])
+                                               : std::numeric_limits<double>::infinity();
         Pbest_[i]  = X_[i];
         Fpbest_[i] = FX_[i];
     }
@@ -209,13 +250,18 @@ void CLPSO::one_iteration()
     std::uniform_real_distribution<double> U01(0.0, 1.0);
 
     // Inertia schedule across iterations
-    const double denom = (max_iters_ > 1) ? (double)(max_iters_ - 1) : 1.0;
-    const double t = std::min(1.0, std::max(0.0, (double)iters_ / denom));
+    // BUGFIX: the inertia schedule used iters_/max_iters_; max_iters is only a
+    // 5e6 safety cap (the real budget is max_evals), so w stayed at w_max = 0.9
+    // for the whole run and the swarm never converged (sphere-10D: f ~ 100
+    // after 20000 evaluations; reference CLPSO: ~1e-9).
+    const double t = progressFraction();
     const double w = w_max_ - (w_max_ - w_min_) * t;
 
-    // A small global-best component accelerates exploitation in later iterations while preserving CLPSO exploration early.
-    const double alpha = t;            // 0 -> 1 over the run
-    const double c_gb  = 0.5 * c_;     // global-best coefficient (fixed fraction of c_)
+    // Optional global-best term. It is NOT part of CLPSO (Liang et al. 2006,
+    // v = w v + c r (pbest_fi(d) - x)); it is off by default (gbest_coef = 0)
+    // and can be enabled from [clpso] (it ramps up linearly over the run).
+    const double alpha = t;
+    const double c_gb  = gbest_coef_ * c_;
 
     for (int i = 0; i < pop_; ++i) {
 

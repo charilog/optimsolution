@@ -103,21 +103,11 @@ double VibratingPlatform::evaluate_core(const Vec& x) {
 }
 
 void VibratingPlatform::gradient_core(const Vec& x, Vec& g) {
-    g.assign(x.size(), 0.0);
-    const double f0 = evaluate_core(x);
-    Vec xt = x;
-
-    const double rel = 1e-6;
-    const double abs = 1e-8;
-    const int n = std::min<int>(5, static_cast<int>(x.size()));
-
-    for (int i = 0; i < n; ++i) {
-        const double h = std::max(abs, std::abs(x[i]) * rel);
-        xt[i] = x[i] + h;
-        const double fp = evaluate_core(xt);
-        g[i] = (fp - f0) / h;
-        xt[i] = x[i];
-    }
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

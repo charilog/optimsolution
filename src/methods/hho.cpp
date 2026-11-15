@@ -58,7 +58,13 @@ void HHO::init(){
     if (!prob_) return;
 
     const int D = prob_->dimension();
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): literature default. Heidari et al.'s
+    // Harris Hawks Optimization paper (2019) follows the same
+    // Mirjalili-tradition benchmark convention of 30 search agents used by
+    // GWO/WOA/MFO/SCA. Previously population=0 silently fell back to
+    // [global] population (default 100) instead of this documented
+    // default -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 30));
     this->setPopulation(N);
 
     X_.clear(); FX_.clear();

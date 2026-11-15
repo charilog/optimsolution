@@ -34,7 +34,7 @@ void ARQ::configure(const MethodConfig& mc) {
         this->setPopulation(pop_override_);
     }
 
-    pbest_           = mc.getDbl("p", pbest_);
+    pbest_           = mc.getDbl("p", mc.getDbl("pbest_frac", pbest_));   // "pbest_frac": cfg alias
     agent_fraction_  = mc.getDbl("agentfraction", agent_fraction_);
     muF_             = mc.getDbl("muF", muF_);
     muCR_            = mc.getDbl("muCR", muCR_);
@@ -53,7 +53,7 @@ void ARQ::configure(const MethodConfig& mc) {
     Fhi_             = mc.getDbl("Fhi", Fhi_);
 
     rtr_pool_        = mc.getInt("rtrpool", rtr_pool_);
-    archive_rate_    = mc.getDbl("archiverate", archive_rate_);
+    archive_rate_    = mc.getDbl("archiverate", mc.getDbl("archive_rate", archive_rate_));   // "archive_rate": cfg alias
 
     debug_arq_       = mc.getInt("debug_arq", debug_arq_);
 
@@ -72,7 +72,13 @@ void ARQ::init(){
     if (!prob_) return;
 
     const int D = prob_->dimension();
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): internal method (this codebase's own ARQ
+    // family), no external published literature default; N=100 is this
+    // codebase's general convention. Previously population=0 silently
+    // fell back to [global] population (default 100, so numerically the
+    // same here, but now explicit/robust rather than accidental) -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 100));
+
     this->setPopulation(N);
 
     X_.clear(); FX_.clear(); A_.clear();

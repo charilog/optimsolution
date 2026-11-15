@@ -68,7 +68,11 @@ void WCA::init(){
     iter_ = 0;
 
     const int D = prob_->dimension();
-    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : population()));
+    // population=0 (or unset): Eskandar et al.'s original WCA paper (2012)
+    // varies Npop by application; we use the commonly cited convention of
+    // Npop=50. Previously population=0 silently fell back to [global]
+    // population (default 100) instead of this documented convention -- fixed here.
+    const int N = std::max(4, (pop_override_ >= 4 ? pop_override_ : 50));
     this->setPopulation(N);
 
     // mean range for scale interpretation

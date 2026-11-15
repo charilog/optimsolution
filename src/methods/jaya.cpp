@@ -23,7 +23,15 @@ void JAYA::init(){
     if (!prob_) return;
 
     const int D = prob_->dimension();
-    const int N = std::max(3, (pop_override_ >= 3 ? pop_override_ : population()));
+    // population=0 (or unset): Rao's original Jaya paper (2016) doesn't fix
+    // a single population size -- it deliberately varies population per
+    // benchmark function to hold total function evaluations constant
+    // across compared algorithms. In the absence of one canonical number,
+    // we use nPop=30, the value used by the most widely reused reference
+    // implementations of Jaya (e.g. the standard MATLAB demo code).
+    // Previously population=0 silently fell back to [global] population
+    // (default 100) instead of this documented default -- fixed here.
+    const int N = std::max(3, (pop_override_ >= 3 ? pop_override_ : 30));
 
     // Keep the optimizer reporter consistent
     this->setPopulation(N);

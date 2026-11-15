@@ -96,11 +96,15 @@ void MSCSO::one_iteration() {
     std::normal_distribution<double>       Nstd(0.0, 1.0);     // beta ~ N(0,1) (SSA convention)
 
     const double t    = (double)iters_;
-    const double Tmax = (double)std::max(1, max_iters_);
+    // BUGFIX: t/Tmax used to be iters_/max_iters_ (max_iters is a 5e6 safety
+    // cap, the real budget is max_evals), so rg stayed ~SM for the whole run.
+    const double Tmax = 1.0;
 
     // --- Nonlinear adjustment strategy (Eqs. 13-14) ---
-    const double f_nl = std::sin((MSCSO_PI / 4.0) * (t / Tmax));
-    const double rg   = SM_ - (SM_ * t / Tmax) * f_nl;
+    const double tT   = progressFraction();   // t / Tmax
+    const double f_nl = std::sin((MSCSO_PI / 4.0) * tT);
+    const double rg   = SM_ - (SM_ * tT) * f_nl;
+    (void)t; (void)Tmax;
 
     // --- R, r for this iteration (Eqs. 4-5); shared by the whole population ---
     const double R      = 2.0 * rg * U01(rng_) - rg;

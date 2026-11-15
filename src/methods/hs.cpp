@@ -16,8 +16,15 @@ void HS::init(){
 
     const int D = prob_->dimension();
 
-    // If an override exists in [hs], it takes precedence; otherwise [global] population() is used
-    const int N = std::max(3, (pop_override_ >= 3 ? pop_override_ : population()));
+    // population=0 (or unset): literature default. Geem's Harmony Search
+    // does not fix one number in the 2001 paper (HMS is chosen per
+    // problem), but the review literature consistently describes HMS as
+    // "typically set to be between 50 and 100" (Gao et al., "Harmony
+    // Search Method: Theory and Applications," Comput. Intell. Neurosci.
+    // 2015). We use the lower end of that range, HMS=50. Previously
+    // population=0 silently fell back to [global] population (default
+    // 100) instead of this documented default -- fixed here.
+    const int N = std::max(3, (pop_override_ >= 3 ? pop_override_ : 50));
 
     // Synchronization for consistency with the reporter
     this->setPopulation(N);

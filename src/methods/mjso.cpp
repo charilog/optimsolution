@@ -1,5 +1,6 @@
 #include "mjso.h"
 #include "init.h"
+#include <cmath>
 
 #include <numeric>
 #include <cctype>
@@ -17,8 +18,14 @@ inline double clampd(double x, double lo, double hi)
 
 void MJSO::configure(const MethodConfig& mc)
 {
-    // Base: current global population (from [global]).
-    int basePop = population();
+    // population=0 (or unset): jSO derivative -- inherits jSO's own
+    // literature default (Brest et al. 2017: Ninit = 25*sqrt(D)*ln(D))
+    // instead of falling back to [global] population as before.
+    int basePop = 50;
+    if (prob_) {
+        const int D = prob_->dimension();
+        if (D > 0) basePop = (int)std::llround(25.0 * std::sqrt((double)D) * std::log((double)D));
+    }
     if (basePop < 4) basePop = 4;
 
     // If a population is provided in [mjso], it takes precedence.
@@ -98,7 +105,10 @@ void MJSO::init()
 
     // Safety: if a value is missing for any reason, the Optimizer value is used.
     if (pop_init_ <= 0) {
-        pop_init_ = population();
+        // population=0 (or unset): jSO derivative -- inherits jSO's own
+        // literature default (Brest et al. 2017: Ninit = 25*sqrt(D)*ln(D))
+        // instead of falling back to [global] population as before.
+        pop_init_ = (int)std::llround(25.0 * std::sqrt((double)D) * std::log((double)D));
         if (pop_init_ < 4) pop_init_ = 50;
         setPopulation(pop_init_);
     }

@@ -58,6 +58,8 @@ private:
         std::vector<double> fX;   // fitness
         Vec    gbest_x;
         double gbest_f{std::numeric_limits<double>::infinity()};
+        Vec    inc_x;     // best point EVALUATED on this island (reporting only)
+        double inc_f = std::numeric_limits<double>::infinity();
         std::deque<double> delta_hist; // For the NM window: front holds last fmin, rest |delta|
         std::mt19937_64 rng;
 
@@ -89,6 +91,7 @@ private:
     std::string end_local_method_{"lbfgs"};
 
     int         stop_after_islands_{-1};
+    int         island_stop_mode_{-1};   // island_stop: -1 auto, 0 off, 1 on (see island_stop.h)
 
     // --- PSIOA coefficients & adaptation ---
     double c1_{1.0};

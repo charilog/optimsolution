@@ -11,7 +11,7 @@ endif()
 set(OPTIMSOLUTION_GUI_CMAKE_INCLUDED 1)
 
 function(optimsolution_add_gui)
-    find_package(Qt6 REQUIRED COMPONENTS Widgets)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets PrintSupport)
 
     set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTOUIC ON)
@@ -20,7 +20,13 @@ function(optimsolution_add_gui)
     # REQUIRED GUI sources (must include the GUI entrypoint that defines main()).
     set(OPTIMSOLUTION_GUI_CPP
         "${CMAKE_SOURCE_DIR}/gui/optimsolution_gui_main.cpp"
-        "${CMAKE_SOURCE_DIR}/gui/MainWindow.cpp"
+        "${CMAKE_SOURCE_DIR}/gui/MainWindow_Ui.cpp"
+        "${CMAKE_SOURCE_DIR}/gui/MainWindow_Tabs.cpp"
+        "${CMAKE_SOURCE_DIR}/gui/MainWindow_RunControl.cpp"
+        "${CMAKE_SOURCE_DIR}/gui/MainWindow_BatchStats.cpp"
+        "${CMAKE_SOURCE_DIR}/gui/MainWindow_ProcessSettings.cpp"
+        "${CMAKE_SOURCE_DIR}/gui/MainWindow_Plots.cpp"
+        "${CMAKE_SOURCE_DIR}/gui/MainWindow_NNLandscape.cpp"
         "${CMAKE_SOURCE_DIR}/gui/BusySpinner.cpp"
         "${CMAKE_SOURCE_DIR}/gui/AnsiStrip.cpp"
         "${CMAKE_SOURCE_DIR}/gui/ConfigFile.cpp"
@@ -32,6 +38,7 @@ function(optimsolution_add_gui)
 
     set(OPTIMSOLUTION_GUI_HDR
         "${CMAKE_SOURCE_DIR}/gui/MainWindow.h"
+        "${CMAKE_SOURCE_DIR}/gui/MainWindowShared.h"
         "${CMAKE_SOURCE_DIR}/gui/BusySpinner.h"
         "${CMAKE_SOURCE_DIR}/gui/AnsiStrip.h"
         "${CMAKE_SOURCE_DIR}/gui/ConfigFile.h"
@@ -69,7 +76,7 @@ function(optimsolution_add_gui)
     )
     set_target_properties(optimsolution_gui PROPERTIES WIN32_EXECUTABLE TRUE)
 
-    target_link_libraries(optimsolution_gui PRIVATE optimcore Qt6::Widgets)
+    target_link_libraries(optimsolution_gui PRIVATE optimcore Qt6::Widgets Qt6::PrintSupport)
 
     target_include_directories(optimsolution_gui PRIVATE
         "${CMAKE_SOURCE_DIR}/include"

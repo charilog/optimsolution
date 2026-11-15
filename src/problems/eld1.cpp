@@ -194,19 +194,11 @@ double ELD1::evaluate_core(const Vec& x)
 
 void ELD1::gradient_core(const Vec& x, Vec& g)
 {
-    const int n = (int)x.size();
-    g.assign(n, 0.0);
-
-    const double f0 = evaluate_core(x);
-    Vec xt = x;
-
-    for (int k = 0; k < n; ++k) {
-        const double h = std::max(1e-6, std::abs(x[k]) * 1e-6);
-        xt[k] += h;
-        const double f1 = evaluate_core(xt);
-        g[k] = (f1 - f0) / h;
-        xt[k] = x[k];
-    }
+    // Central finite differences with a relative, bounds-aware step (see
+    // Problem::finiteDifferenceGradient()). The previous hand-written
+    // difference used a fixed step, which gave wrong gradients when |f| is
+    // large (round-off ~ eps*|f|/h, e.g. ~3 percent error on CEC 2017 F11).
+    finiteDifferenceGradient(x, g);
 }
 
 } // namespace optimsolution

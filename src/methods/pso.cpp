@@ -54,7 +54,9 @@ void PSO::init(){
         Pbest_[i]  = X_[i];
         Fpbest_[i] = FX_[i];
         if (FX_[i] < Fgbest_) { Fgbest_ = FX_[i]; Gbest_ = X_[i]; }
-        if (prob_->calls() >= max_evals_) return;
+        // BUGFIX: was 'return', which skipped the best_x_/best_f_ assignment
+        // below (tiny budgets reported best_f = inf and an empty best_x).
+        if (prob_->calls() >= max_evals_) break;
     }
 
     best_x_ = Gbest_;

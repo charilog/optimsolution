@@ -69,6 +69,12 @@ public:
         bool ub = (use_best_direction_ != 0);
         ub = parse_bool(mc.getStr("use_best_direction", mc.getStr("best_direction", mc.getStr("use_best", ""))), ub);
         use_best_direction_ = ub ? 1 : 0;
+        {
+            std::string sm = mc.getStr("step_mode", "");
+            for (auto& ch : sm) ch = (char)std::tolower((unsigned char)ch);
+            if (sm == "range") step_mode_best_diff_ = false;
+            else if (sm == "best_diff" || sm == "canonical") step_mode_best_diff_ = true;
+        }
 
         // In-run local (aliases)
         std::string lm = mc.getStr("local_method",
@@ -159,6 +165,7 @@ private:
     double alpha_{0.01};
     double beta_{1.5};
     int    use_best_direction_{1};
+    bool   step_mode_best_diff_{true};   // step_mode = best_diff (canonical) | range
 
     std::string local_method_ = "lbfgs";
     double      local_rate_   = 0.0;

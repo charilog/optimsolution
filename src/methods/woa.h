@@ -25,11 +25,14 @@ public:
 
     // Settings from [woa] in the configuration file
     void configure(const MethodConfig& mc) override {
-int pop_override = mc.getInt("population", pop_);
-if (pop_override > 0) {
-    pop_ = pop_override;
-    this->setPopulation(pop_); // to allow StopController to read the correct value
-}
+// population=0 (or unset): literature default (Mirjalili & Lewis, "The
+// Whale Optimization Algorithm," Adv. Eng. Softw. 95 (2016)) -- the paper's
+// own experiments explicitly use 30 search agents ("We solve these...
+// using 30 search agents"). Previously population=0 silently fell back to
+// [global] population (default 100) instead of WOA's own default -- fixed here.
+int pop_override = mc.getInt("population", 0);
+pop_ = (pop_override > 0) ? pop_override : 30;
+this->setPopulation(pop_); // to allow StopController to read the correct value
 
         b_spiral_ = mc.getDbl("b", b_spiral_);
         a_start_  = mc.getDbl("a_start", a_start_);
