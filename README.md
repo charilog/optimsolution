@@ -2,7 +2,25 @@
   <img src="./docs/Software.png" alt="Optimsolution logo">
 </p>
 
-Optimsolution (version 56+) is a C++ optimization framework that combines a full-featured Qt-based GUI with a CLI for experimenting with population-based metaheuristics and numerical optimizers across benchmark and real-world problems. The GUI drives the complete workflow selecting methods and problems, configuring runs, launching batch experiments, visualizing convergence, and analyzing results through ranking tables and statistical tests while the CLI provides the same capabilities for scripted and headless execution. Both interfaces share the same optimization core and configuration file, and both support explicit computational budgets, multiple initialization strategies, local search integration, and sensitivity analysis of method and problem parameters.
+Optimsolution (version 56+) is a C++ program for solving optimization problems and for comparing optimization methods. You choose a method and a problem, press run, and get the best solution found, together with convergence plots, statistics and rankings. It works on Windows and Linux, and it can be used in two ways:
+
+- **GUI** (Qt): point-and-click, with live plots and result tables.
+- **Command line (CLI)**: the same features for scripts, servers and clusters.
+
+Both use the same optimization code and the same settings file (`optimsolution.cfg`), so they give the same results.
+
+**What you can do with it**
+
+- **Run many methods on many problems.** It includes differential evolution, particle swarm, evolution strategies, nature-inspired algorithms, local search methods (gradient descent, BFGS, Adam, Nelder-Mead, ...) and multi-objective methods, and it has classical benchmarks, CEC 2017 / CEC 2022 functions and real-world engineering problems.
+- **Compare methods fairly.** Fix the budget (number of function evaluations), repeat each run many times with fixed seeds, and get best / mean / standard deviation, success rate and timing. Batch runs produce ranking tables, Wilcoxon and Friedman tests and the U-score report (exported to Excel).
+- **Test how sensitive a method is** to its own parameters, or how a problem changes when its dimension or bounds change.
+- **Control how a run behaves**: choose the stopping rule, the way the starting points are generated, and whether a local search is used inside the run or at its end.
+- **Solve multi-objective problems** and see the Pareto front.
+- **Switch methods during one run** (portfolio mode), so that a different method continues from the best point found so far.
+- **Study problems with machine learning**: extract landscape features (ELA), train a model that picks a good method for a given problem, and analyze the loss landscape of neural networks and their generalization gap.
+- **Measure algorithm complexity** with the CEC 2017 procedure.
+- **Save time**: independent runs can use all CPU cores (OpenMP) with exactly the same results as a serial run.
+- **Add your own methods and problems** with the built-in Code Wizard.
 
 ---
 
