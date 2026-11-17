@@ -2,11 +2,7 @@
   <img src="./docs/Software.png" alt="Optimsolution logo">
 </p>
 
-Optimsolution (version 52+) is a C++ optimization framework that combines a full-featured Qt-based GUI with a CLI for experimenting with population-based metaheuristics and numerical optimizers across benchmark and real-world problems. The GUI drives the complete workflow selecting methods and problems, configuring runs, launching batch experiments, visualizing convergence, and analyzing results through ranking tables and statistical tests while the CLI provides the same capabilities for scripted and headless execution. Both interfaces share the same optimization core and configuration file, and both support explicit computational budgets, multiple initialization strategies, local search integration, and sensitivity analysis of method and problem parameters.
-
-> English manual: [optimsolution_manual_EN.pdf](./docs/optimsolutionManual_EN.pdf)
->
-> Greek manual: [optimsolution_manual_GR.pdf](./docs/optimsolutionManual_GR.pdf)
+Optimsolution (version 56+) is a C++ optimization framework that combines a full-featured Qt-based GUI with a CLI for experimenting with population-based metaheuristics and numerical optimizers across benchmark and real-world problems. The GUI drives the complete workflow selecting methods and problems, configuring runs, launching batch experiments, visualizing convergence, and analyzing results through ranking tables and statistical tests while the CLI provides the same capabilities for scripted and headless execution. Both interfaces share the same optimization core and configuration file, and both support explicit computational budgets, multiple initialization strategies, local search integration, and sensitivity analysis of method and problem parameters.
 
 ---
 
@@ -24,40 +20,19 @@ Optimsolution (version 52+) is a C++ optimization framework that combines a full
 
 ## Contents
 
-1. [Changelog](#1-changelog)
-2. [Available methods and problems (CLI)](#2-available-methods-and-problems-cli)
-3. [Windows (Console + GUI)](#3-windows-console--gui)
-4. [Linux (Console + GUI)](#4-linux-console--gui)
-5. [Settings (`optimsolution.cfg`)](#5-settings-optimsolutioncfg)
-6. [GUI overview](#6-gui-overview)
-7. [Example run console output](#7-example-run-console-output)
-8. [CLI reference and run modes](#8-cli-reference-and-run-modes)
-9. [Statistics, ranking and reports](#9-statistics-ranking-and-reports)
-10. [Python helper scripts (ELA + meta-learning)](#10-python-helper-scripts-ela--meta-learning)
-11. [Project layout](#11-project-layout)
+1. [Available methods and problems (CLI)](#1-available-methods-and-problems-cli)
+2. [Windows (Console + GUI)](#2-windows-console--gui)
+3. [Linux (Console + GUI)](#3-linux-console--gui)
+4. [Settings (`optimsolution.cfg`)](#4-settings-optimsolutioncfg)
+5. [GUI overview](#5-gui-overview)
+6. [Example run console output](#6-example-run-console-output)
+7. [CLI reference and run modes](#7-cli-reference-and-run-modes)
+8. [Statistics, ranking and reports](#8-statistics-ranking-and-reports)
+9. [Python helper scripts (ELA + meta-learning)](#9-python-helper-scripts-ela--meta-learning)
 
 ---
 
-## 1) Changelog
-
-### v51 → v52
-
-### OpenMP parallelization across every run mode
-Independent runs can now execute in parallel via OpenMP instead of strictly one-at-a-time. This applies uniformly to **all four run modes** — Single run, Batch run, and both Sensitivity analysis modes (method parameters and problem parameters) — since all of them are ultimately built on the same "N independent runs" execution path.
-
-Two new `[global]` settings control this:
-
-```ini
-[global]
-parallel_runs = 0   ; 0 = serial (default), 1 = parallel independent runs
-omp_threads   = 0   ; 0 = use all available cores, N = cap at N threads
-```
-
-Parallel execution is designed to be **numerically identical** to serial execution: every run keeps its own `Problem` instance and its own RNG seeded with `seed_base + run_index`, exactly as in the serial path, so turning `parallel_runs` on or off never changes the reported statistics — only the wall-clock time. Problems with non-thread-safe global state (the GKLS generator family) are automatically kept serial regardless of this setting, with a note printed to the console.
-
----
-
-## 2) Available methods and problems (CLI)
+## 1) Available methods and problems (CLI)
 
 CLI syntax:
 
@@ -275,7 +250,7 @@ A feed-forward neural network is exposed as an ordinary `Problem` (`src/problems
 
 ---
 
-## 3) Windows (Console + GUI)
+## 2) Windows (Console + GUI)
 
 > **Windows installer available:** Download and run **Optimsolution.exe** from:
 >
@@ -330,7 +305,7 @@ Run.
 
 ---
 
-## 4) Linux (Console + GUI)
+## 3) Linux (Console + GUI)
 
 ### Prerequisites
 - GCC or Clang, CMake, Ninja (recommended)
@@ -355,7 +330,7 @@ OpenMP is detected automatically by CMake; if it is not found, the build falls b
 
 ---
 
-## 5) Settings (`optimsolution.cfg`)
+## 4) Settings (`optimsolution.cfg`)
 
 Both the CLI and GUI read experiment defaults from `optimsolution.cfg`. The GUI can apply additional runtime-only overrides (e.g. forcing CSV convergence output for plots) without modifying the file. The CLI looks for `optimsolution.cfg` in the current directory and walks up through parent directories (also starting from the executable's folder).
 
@@ -430,7 +405,7 @@ Every combination is run `runs` times and summarized to a CSV. See [`docs/sensit
 
 ---
 
-## 6) GUI overview
+## 5) GUI overview
 
 The GUI and CLI share the same optimization core. The GUI adds eight run modes, convergence plotting, batch analysis, sensitivity studies, and a code wizard for extending the framework without leaving the application.
 
@@ -447,11 +422,11 @@ The GUI and CLI share the same optimization core. The GUI adds eight run modes, 
 | **Sensitivity analysis of method parameters** | Sweeps method parameters over a defined range (problem fixed). Shows how each parameter value affects the result. |
 | **Sensitivity analysis of problem parameters** | Sweeps problem parameters such as dimension or bounds (method fixed). Characterizes problem difficulty as a function of its own configuration. |
 | **Multi-objective optimization** | Runs a Pareto-based method (`nsga2`, `moead`, `mopso`) against a multi-objective problem (`zdt1`-`zdt4`, `portfoliomv`) and plots the resulting Pareto front. Population and generations are read from `optimsolution.cfg`, not set in this panel. |
-| **Meta-dataset pipeline (batch + ELA + ML)** | A guided multi-stage workflow: batch ranking → landscape sampling → ELA feature extraction → training of an algorithm-selection meta-learner (see [§10](#10-python-helper-scripts-ela--meta-learning)). |
+| **Meta-dataset pipeline (batch + ELA + ML)** | A guided multi-stage workflow: batch ranking → landscape sampling → ELA feature extraction → training of an algorithm-selection meta-learner (see [§9](#9-python-helper-scripts-ela--meta-learning)). |
 | **Neural-network landscape / generalization gap** | Trains networks on the bundled datasets with any optimizer, samples the loss landscape around the found minimum, and relates sharpness to the generalization gap (train / sample / bootstrap CI stages). |
-| **Portfolio / dynamic algorithm switching** | Splits the evaluation budget into segments and switches between candidate methods mid-run, warm-starting each segment near the incumbent (see [§8](#8-cli-reference-and-run-modes)). |
+| **Portfolio / dynamic algorithm switching** | Splits the evaluation budget into segments and switches between candidate methods mid-run, warm-starting each segment near the incumbent (see [§7](#7-cli-reference-and-run-modes)). |
 
-The single-objective modes (single, batch and both sensitivity modes) can run their independent repetitions in parallel via OpenMP (see [§5](#5-settings-optimsolutioncfg)), with results that are numerically identical to a fully serial run.
+The single-objective modes (single, batch and both sensitivity modes) can run their independent repetitions in parallel via OpenMP (see [§4](#4-settings-optimsolutioncfg)), with results that are numerically identical to a fully serial run.
 
 ### Why the GUI is significantly faster than running the CLI directly
 
@@ -474,11 +449,9 @@ The practical effect is that a batch experiment that would take several hours of
 ### Code Wizard
 The Code Wizard panel (bottom-right) generates skeleton `.h` and `.cpp` files for new methods or problems, patches `factory.cpp` and `CMakeLists.txt` automatically, and triggers a rebuild on the next startup.
 
-For full details see the English manual: [optimsolution_manual_EN.pdf](./docs/optimsolutionManual_EN.pdf)
-
 ---
 
-## 7) Example run console output
+## 6) Example run console output
 
 The following screenshot shows the last iterations of **Run 30** and the final summary for:
 
@@ -492,7 +465,7 @@ optimsolution arq tersoffc
 
 ---
 
-## 8) CLI reference and run modes
+## 7) CLI reference and run modes
 
 ```text
 optimsolution <method> <problem> [dimension]
@@ -553,7 +526,7 @@ Trains a feed-forward network with any registered optimizer (gradient-based or p
 
 ---
 
-## 9) Statistics, ranking and reports
+## 8) Statistics, ranking and reports
 
 - **Per-run outputs:** best / mean / standard deviation, success rate (`success_tol`), function calls, timing and memory, and local-search usage.
 - **Termination rules:** `maxevals`, plus population-based criteria `bss`, `wss`, `tss`, `boss`, `srs`, `irs`, `doublebox` (or `all` / `none`).
@@ -564,7 +537,7 @@ Trains a feed-forward network with any registered optimizer (gradient-based or p
 
 ---
 
-## 10) Python helper scripts (ELA + meta-learning)
+## 9) Python helper scripts (ELA + meta-learning)
 
 The `py_scripts/` folder (keep it next to `CMakeLists.txt`) powers the GUI's *Meta-dataset pipeline* and *Neural-network landscape* modes; the scripts can also be run by hand.
 
@@ -578,21 +551,3 @@ The `py_scripts/` folder (keep it next to `CMakeLists.txt`) powers the GUI's *Me
 
 Dependencies: `pip install pflacco --no-deps`, then `numpy pandas scikit-learn scipy numdifftools SALib` and `pyDOE==0.3.8`. See [`py_scripts/README_python_ela.md`](./py_scripts/README_python_ela.md) for the exact installation notes.
 
----
-
-## 11) Project layout
-
-```text
-CMakeLists.txt, cmake/        build system (core library, CLI, optional Qt GUI)
-optimsolution.cfg             default experiment configuration
-include/                      public headers (Problem, Optimizer, config, stop rules, stats, U-score, ...)
-src/                          CLI entry point, factory, local search, run modes (batch, NN landscape, portfolio, complexity)
-src/methods/                  optimizer implementations
-src/problems/                 benchmark and real-world problems (incl. CEC 2017 / 2022 data)
-gui/                          Qt GUI (main window, plots, batch statistics, Code Wizard)
-datasets/                     .train / .test files for the neural-network mode
-py_scripts/                   ELA + meta-learning helpers
-docs/                         manuals (EN/GR), screenshots, install notes, sensitivity example
-```
-
-Adding a method or a problem: implement the `Optimizer` / `Problem` interface, register it in `src/factory.cpp` (`makeMethod` / `makeProblem` and the matching `list*Names`) and in `CMakeLists.txt` — or let the **Code Wizard** do all of this for you.
